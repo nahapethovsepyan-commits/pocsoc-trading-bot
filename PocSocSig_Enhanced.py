@@ -277,11 +277,35 @@ async def manual_signal_handler(message):
         msg = await message.answer(t['analyzing'])
         
         signal_data = await asyncio.wait_for(generate_signal(), timeout=10.0)
-        await send_signal_message(signal_data, lang, bot=bot, TEXTS=TEXTS)
-        if signal_data["signal"] != "NO_SIGNAL":
+        
+        # FIX: Handle NO_SIGNAL for manual requests - show explanation
+        if signal_data["signal"] == "NO_SIGNAL":
+            from src.utils.helpers import format_time
+            from src.signals.utils import get_local_time, clean_markdown
+            
+            no_signal_text = f"❌ {t['signal_why_no']}\n"
+            no_signal_text += f"📊 {t['signal_score'].format(score=signal_data['score'])}\n"
+            no_signal_text += f"🎯 {t['signal_conf'].format(conf=signal_data['confidence'])}\n"
+            
+            if "indicators" in signal_data and signal_data["indicators"]:
+                indicators = signal_data["indicators"]
+                no_signal_text += f"\n📈 {t['indicators']}\n"
+                no_signal_text += f"RSI: {indicators.get('rsi', 'N/A')} | MACD: {indicators.get('macd', 'N/A')}\n"
+            
+            if signal_data.get("reasoning"):
+                safe_reasoning = clean_markdown(signal_data["reasoning"])
+                if safe_reasoning:
+                    no_signal_text += f"\n🤖 {safe_reasoning}\n"
+            
+            no_signal_text += f"\n⏰ {format_time(get_local_time())}"
+            await message.answer(no_signal_text)
+        else:
+            # Only send actual signals (BUY/SELL) via send_signal_message
+            await send_signal_message(signal_data, lang, bot=bot, TEXTS=TEXTS)
             async with stats_lock:
                 STATS["signals_per_hour"] += 1
                 STATS["last_signal_time"] = datetime.now()
+                
     except asyncio.TimeoutError:
         await message.answer(t['timeout'])
     except Exception as e:
