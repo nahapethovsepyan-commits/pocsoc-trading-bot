@@ -148,7 +148,7 @@ This guide provides quick commands for each deployment method.
 ## Monitoring
 
 ### Logs
-- **Render/Heroku:** Use platform's log viewer
+- **Render:** Use platform's log viewer
 - **Local/VPS:** `journalctl -u trading-bot -f` or `tail -f logs/enhanced_bot.log`
 
 ### Health Checks

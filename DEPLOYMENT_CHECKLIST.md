@@ -155,26 +155,6 @@ Before deploying, you need the following API keys:
 
 ---
 
-### Option C: Heroku
-
-**Time:** 20-30 minutes
-
-- [ ] Install Heroku CLI
-- [ ] Login: `heroku login`
-- [ ] Create app: `heroku create your-bot-name`
-- [ ] Set environment variables:
-  ```bash
-  heroku config:set BOT_TOKEN=your_token
-  heroku config:set TWELVE_DATA_API_KEY=your_key
-  heroku config:set OPENAI_API_KEY=your_key
-  heroku config:set ALPHA_VANTAGE_KEY=your_key
-  ```
-- [ ] Deploy: `git push heroku main`
-- [ ] Check logs: `heroku logs --tail`
-- [ ] Test bot in Telegram
-
----
-
 ## Post-Deployment Verification
 
 ### Immediate Checks (5 minutes)
