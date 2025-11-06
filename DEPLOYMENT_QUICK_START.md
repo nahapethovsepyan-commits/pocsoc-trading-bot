@@ -70,37 +70,7 @@ This guide provides quick commands for each deployment method.
 
 ---
 
-## Option C: Docker
-
-### Steps:
-1. Build image:
-   ```bash
-   docker build -t trading-bot .
-   ```
-
-2. Run container:
-   ```bash
-   docker run -d \
-     --name trading-bot \
-     --restart unless-stopped \
-     --env-file .env \
-     trading-bot
-   ```
-
-3. Check logs:
-   ```bash
-   docker logs -f trading-bot
-   ```
-
-4. Stop container:
-   ```bash
-   docker stop trading-bot
-   docker rm trading-bot
-   ```
-
----
-
-## Option D: Heroku
+## Option C: Heroku
 
 ### Steps:
 1. Install Heroku CLI: https://devcenter.heroku.com/articles/heroku-cli
@@ -180,7 +150,6 @@ This guide provides quick commands for each deployment method.
 ### Logs
 - **Render/Heroku:** Use platform's log viewer
 - **Local/VPS:** `journalctl -u trading-bot -f` or `tail -f logs/enhanced_bot.log`
-- **Docker:** `docker logs -f trading-bot`
 
 ### Health Checks
 - Use `/health` command in Telegram

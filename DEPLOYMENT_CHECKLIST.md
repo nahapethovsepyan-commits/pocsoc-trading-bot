@@ -155,31 +155,7 @@ Before deploying, you need the following API keys:
 
 ---
 
-### Option C: Docker
-
-**Time:** 15-20 minutes
-
-- [ ] Ensure Docker is installed
-- [ ] Build Docker image:
-  ```bash
-  docker build -t trading-bot .
-  ```
-- [ ] Create `.env` file with API keys
-- [ ] Run container:
-  ```bash
-  docker run -d \
-    --name trading-bot \
-    --restart unless-stopped \
-    --env-file .env \
-    trading-bot
-  ```
-- [ ] Check logs: `docker logs -f trading-bot`
-- [ ] Verify container is running: `docker ps`
-- [ ] Test bot in Telegram
-
----
-
-### Option D: Heroku
+### Option C: Heroku
 
 **Time:** 20-30 minutes
 
