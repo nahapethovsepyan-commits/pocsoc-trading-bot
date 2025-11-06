@@ -49,7 +49,7 @@ Read **`API_KEYS_GUIDE.md`** and get:
 ### Step 2: Install Dependencies (2 min)
 
 ```bash
-cd /Users/nho/Downloads/pocsoc
+cd pocsoc-trading-bot
 pip install -r requirements.txt
 ```
 

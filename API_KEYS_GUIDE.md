@@ -390,7 +390,7 @@ Testing API Keys
 
 ```bash
 # Make sure you're in the right directory
-cd /Users/nho/Downloads/pocsoc
+cd pocsoc-trading-bot
 
 # Check if .env exists
 ls -la .env

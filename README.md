@@ -33,7 +33,7 @@ You need:
 ### 2. Install (2 min)
 
 ```bash
-cd /Users/nho/Downloads/pocsoc
+cd pocsoc-trading-bot
 pip install -r requirements.txt
 ```
 
@@ -397,7 +397,7 @@ pip install -r requirements.txt
 
 ```bash
 # Clone or download this repository
-cd /Users/nho/Downloads/pocsoc
+cd pocsoc-trading-bot
 
 # Follow the guides
 cat START_HERE.md

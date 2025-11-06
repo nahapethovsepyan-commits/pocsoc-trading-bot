@@ -210,7 +210,9 @@ async def main():
     print("=" * 60)
     
     # Change to correct directory
-    os.chdir('/Users/nho/Desktop/pocsoc_final')
+    # Change to project root directory (adjust path as needed)
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    os.chdir(project_root)
     
     results = []
     

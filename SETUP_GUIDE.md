@@ -55,7 +55,7 @@
 ### Option A: Using pip (recommended)
 
 ```bash
-cd /Users/nho/Downloads/pocsoc
+cd pocsoc-trading-bot
 pip install -r requirements.txt
 ```
 
@@ -81,7 +81,7 @@ python -c "import aiogram; print('Aiogram installed ✓')"
 ### 3.1 Create .env file
 
 ```bash
-cd /Users/nho/Downloads/pocsoc
+cd pocsoc-trading-bot
 cp .env.template .env
 ```
 
@@ -110,7 +110,7 @@ ALPHA_VANTAGE_KEY=your_alphavantage_key_here
 ### Start the Enhanced Bot
 
 ```bash
-cd /Users/nho/Downloads/pocsoc
+cd pocsoc-trading-bot
 python PocSocSig_Enhanced.py
 ```
 
