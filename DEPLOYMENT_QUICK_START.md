@@ -70,40 +70,6 @@ This guide provides quick commands for each deployment method.
 
 ---
 
-## Option C: Heroku
-
-### Steps:
-1. Install Heroku CLI: https://devcenter.heroku.com/articles/heroku-cli
-
-2. Login:
-   ```bash
-   heroku login
-   ```
-
-3. Create app:
-   ```bash
-   heroku create your-bot-name
-   ```
-
-4. Set environment variables:
-   ```bash
-   heroku config:set BOT_TOKEN=your_token
-   heroku config:set TWELVE_DATA_API_KEY=your_key
-   heroku config:set OPENAI_API_KEY=your_key
-   ```
-
-5. Deploy:
-   ```bash
-   git push heroku main
-   ```
-
-6. Check logs:
-   ```bash
-   heroku logs --tail
-   ```
-
----
-
 ## Post-Deployment Verification
 
 ### 1. Check Bot is Running
