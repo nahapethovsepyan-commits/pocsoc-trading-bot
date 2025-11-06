@@ -1,0 +1,16 @@
+[Unit]
+Description=EUR/USD Trading Signal Bot
+After=network.target
+
+[Service]
+Type=simple
+User=YOUR_USER
+WorkingDirectory=/path/to/pocsoc_final
+Environment="PATH=/usr/bin:/usr/local/bin"
+ExecStart=/usr/bin/python3 /path/to/pocsoc_final/PocSocSig_Enhanced.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+
