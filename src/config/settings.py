@@ -15,13 +15,14 @@ CONFIG: Dict[str, Any] = {
     "pair": "EUR/USD",
     "api_source": "twelvedata",
     "analysis_interval_minutes": 2,
-    "min_signal_score": 65,  # FIXED: Higher threshold for binary options (was 55)
-    "min_confidence": 70,    # FIXED: Higher confidence required (was 60)
+    "min_signal_score": 60,  # Tuned: allow strong setups to pass with relaxed TA filters
+    "min_confidence": 65,    # Tuned: maintain quality but permit more trades
     "use_gpt": _use_gpt,
     "gpt_weight": 0.35,      # Уменьшен вес GPT
     "ta_weight": 0.65,       # Увеличен вес технического анализа
     "lookback_window": 60,
     "max_signals_per_hour": 12,  # Увеличен лимит сигналов
+    "max_sell_score": 40,       # Base SELL threshold (can tighten via adaptive thresholds)
     "risk_reward_ratio": 1.8,
     "cache_duration_seconds": 90,
     # Magic numbers вынесены в конфиг
@@ -66,6 +67,8 @@ CONFIG: Dict[str, Any] = {
     "min_confirmations": 4,       # Minimum indicator confirmations required
     "require_momentum": True,      # Require price momentum alignment
     "require_trend_alignment": True,  # Require trend alignment for strong trends
+    "momentum_penalty_score": 7,   # Score penalty when momentum opposes signal
+    "momentum_penalty_confidence": 5,  # Confidence penalty when momentum opposes signal
     # Per-user rate limiting
     "max_user_commands_per_minute": 10,  # Maximum commands per user per minute
     # Error message configuration

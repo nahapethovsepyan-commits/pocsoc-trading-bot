@@ -37,37 +37,41 @@ def calculate_ta_score(rsi: float, macd_diff: float, bb_position: float,
     
     # CRITICAL FIX #1: Check trend direction first
     # For binary options, we MUST trade WITH the trend in strong trends
-    if trend_direction == "DOWNTREND" and adx > 25:
-        # Strong downtrend - only SELL signals allowed
-        if rsi > 50 and macd_diff < -0.0001:
-            ta_score = 35  # Bearish in downtrend
-        else:
-            ta_score = 50  # No signal against strong downtrend
-        # Still apply secondary indicators but keep bearish bias
-        if stoch_k > 70 and stoch_k > stoch_d:
-            ta_score -= 5
-        if bb_position > 70:
+    if trend_direction == "DOWNTREND" and adx > CONFIG.get("adx_trend_threshold", 25):
+        # Strong downtrend - bias score bearish but don’t immediately discard setups
+        ta_score = 45  # start with bearish lean
+        if rsi < 55:
             ta_score -= 3
+        if macd_diff < -CONFIG.get("macd_strong_threshold", 0.0002) / 2:
+            ta_score -= 5
+        if price_change < 0:
+            ta_score -= 4
+        if stoch_k > stoch_d:
+            ta_score -= 2
+        if bb_position > 60:
+            ta_score -= 2
         return max(0, min(100, ta_score))
     
-    if trend_direction == "UPTREND" and adx > 25:
-        # Strong uptrend - only BUY signals allowed
-        if rsi < 50 and macd_diff > 0.0001:
-            ta_score = 65  # Bullish in uptrend
-        else:
-            ta_score = 50  # No signal against strong uptrend
-        # Still apply secondary indicators but keep bullish bias
-        if stoch_k < 30 and stoch_k < stoch_d:
-            ta_score += 5
-        if bb_position < 30:
+    if trend_direction == "UPTREND" and adx > CONFIG.get("adx_trend_threshold", 25):
+        # Strong uptrend - bias score bullish but keep flexibility
+        ta_score = 55  # start with bullish lean
+        if rsi > 45:
             ta_score += 3
+        if macd_diff > CONFIG.get("macd_strong_threshold", 0.0002) / 2:
+            ta_score += 5
+        if price_change > 0:
+            ta_score += 4
+        if stoch_k < stoch_d:
+            ta_score += 2
+        if bb_position < 40:
+            ta_score += 2
         return max(0, min(100, ta_score))
     
     # For ranging/weak trend - need STRONG confirmations (4+ indicators)
     # FIXED: Use stronger thresholds for binary options (from CONFIG)
-    rsi_very_oversold = CONFIG.get("rsi_very_oversold", 35)  # Was 40 - stronger requirement
-    rsi_very_overbought = CONFIG.get("rsi_very_overbought", 65)  # Was 60 - stronger requirement
-    macd_strong_threshold = CONFIG.get("macd_strong_threshold", 0.0002)  # Was 0.0001 - stronger requirement
+    rsi_very_oversold = CONFIG.get("rsi_oversold", 40)
+    rsi_very_overbought = CONFIG.get("rsi_overbought", 60)
+    macd_strong_threshold = CONFIG.get("macd_strong_threshold", 0.0001)
     
     buy_confirmations = 0
     sell_confirmations = 0
@@ -100,28 +104,24 @@ def calculate_ta_score(rsi: float, macd_diff: float, bb_position: float,
     if adx > 25:  # Strong trend
         sell_confirmations += 1
     
-    # Score based on confirmations (require 4+ for strong signal)
-    # FIXED: Momentum must align for strong signals
-    if buy_confirmations >= 4:
-        if price_change > 0:  # Momentum aligned
-            ta_score = 70  # Strong BUY
-        else:
-            ta_score = 55  # Strong indicators but wrong momentum - reduce score
-    elif buy_confirmations >= 3:
-        if price_change > 0:  # Momentum aligned
-            ta_score = 60  # Moderate BUY
-        else:
-            ta_score = 52  # Moderate indicators but wrong momentum
-    elif sell_confirmations >= 4:
-        if price_change < 0:  # Momentum aligned
-            ta_score = 30  # Strong SELL
-        else:
-            ta_score = 45  # Strong indicators but wrong momentum - reduce score
+    # Score based on confirmations (allow strong bias at >=3)
+    # Momentum alignment adds bonus rather than invalidating signal outright
+    if buy_confirmations >= 3:
+        ta_score = 65  # Strong BUY bias
+        if price_change <= 0:
+            ta_score -= 7  # Slight penalty when momentum lags
+    elif buy_confirmations == 2:
+        ta_score = 58  # Moderate BUY bias
+        if price_change <= 0:
+            ta_score -= 5
     elif sell_confirmations >= 3:
-        if price_change < 0:  # Momentum aligned
-            ta_score = 40  # Moderate SELL
-        else:
-            ta_score = 48  # Moderate indicators but wrong momentum
+        ta_score = 35  # Strong SELL bias
+        if price_change >= 0:
+            ta_score += 7
+    elif sell_confirmations == 2:
+        ta_score = 42  # Moderate SELL bias
+        if price_change >= 0:
+            ta_score += 5
     else:
         ta_score = 50  # Not enough confirmations
 

@@ -183,39 +183,106 @@ async def generate_signal() -> Dict[str, Any]:
         
         # FIXED: Higher thresholds for binary options (was 55/45, now 65/35)
         thresholds = get_adaptive_thresholds(atr, current_price)
-        min_buy = max(65, thresholds["min_buy_score"])  # Minimum 65 for binary options
-        max_sell = min(35, thresholds["max_sell_score"])  # Maximum 35 for binary options
+        base_min_buy = CONFIG.get("min_signal_score", 60)
+        base_max_sell = CONFIG.get("max_sell_score", 40)
+        min_buy = max(base_min_buy, thresholds["min_buy_score"])
+        max_sell = min(base_max_sell, thresholds["max_sell_score"])
         
-        logging.info(f"Trend: {trend_direction}, Momentum: {momentum['direction']} ({price_change:.4f}%)")
-        logging.info(f"Adaptive thresholds ({thresholds['label']}): BUY>={min_buy}, SELL<={max_sell}")
-        logging.info(f"Final score: {final_score:.1f}, TA score: {ta_score:.1f}, Confidence: {confidence:.1f}")
+        logging.info(
+            "Trend: %s | Momentum: %s (%.4f%%) | TA score: %.1f | GPT score: %.1f",
+            trend_direction,
+            momentum["direction"],
+            price_change,
+            ta_score,
+            gpt_score,
+        )
+        logging.info(
+            "Adaptive thresholds (%s volatility): BUY>=%s, SELL<=%s | Final score: %.1f | Confidence: %.1f",
+            thresholds["label"],
+            min_buy,
+            max_sell,
+            final_score,
+            confidence,
+        )
 
         # FIXED: Use final_score with momentum and confidence filters
         min_confidence = CONFIG.get("min_confidence", 70)  # Default 70% for binary options
+        momentum_penalty_score = CONFIG.get("momentum_penalty_score", 7)
+        momentum_penalty_confidence = CONFIG.get("momentum_penalty_confidence", 5)
+        decision_reasons = []
+        adjusted_score = final_score
+        adjusted_confidence = confidence
         
         if final_score >= min_buy:
-            # FIXED: Require momentum alignment for BUY
-            if momentum["direction"] == "UP" or momentum["direction"] == "NEUTRAL":
-                if confidence >= min_confidence:
-                    signal = "BUY"
-                    logging.info(f"✅ BUY signal: score={final_score:.1f} >= {min_buy}, confidence={confidence:.1f}, momentum={momentum['direction']}")
-                else:
-                    logging.info(f"⏭️  BUY filtered: confidence={confidence:.1f} < {min_confidence}")
+            if momentum["direction"] not in ("UP", "NEUTRAL"):
+                logging.info(
+                    "⚠️ BUY momentum mismatch (%s) - applying penalties score:%s conf:%s",
+                    momentum["direction"],
+                    momentum_penalty_score,
+                    momentum_penalty_confidence,
+                )
+                adjusted_score -= momentum_penalty_score
+                adjusted_confidence -= momentum_penalty_confidence
+                decision_reasons.append(
+                    f"BUY penalty applied due to momentum {momentum['direction']}"
+                )
+            if adjusted_confidence >= min_confidence and adjusted_score >= min_buy:
+                signal = "BUY"
+                logging.info(
+                    "✅ BUY signal: adjusted_score=%.1f >= %s, adjusted_confidence=%.1f, momentum=%s",
+                    adjusted_score,
+                    min_buy,
+                    adjusted_confidence,
+                    momentum["direction"],
+                )
+                decision_reasons.append("BUY: passed thresholds")
             else:
-                logging.info(f"⏭️  BUY filtered: momentum={momentum['direction']} (price not moving up)")
+                decision_reasons.append(
+                    f"Rejected BUY: adjusted score {adjusted_score:.1f} / confidence {adjusted_confidence:.1f}"
+                )
         elif final_score <= max_sell:
-            # FIXED: Require momentum alignment for SELL
-            if momentum["direction"] == "DOWN" or momentum["direction"] == "NEUTRAL":
-                if confidence >= min_confidence:
-                    signal = "SELL"
-                    logging.info(f"✅ SELL signal: score={final_score:.1f} <= {max_sell}, confidence={confidence:.1f}, momentum={momentum['direction']}")
-                else:
-                    logging.info(f"⏭️  SELL filtered: confidence={confidence:.1f} < {min_confidence}")
+            adjusted_score = final_score
+            adjusted_confidence = confidence
+            if momentum["direction"] not in ("DOWN", "NEUTRAL"):
+                logging.info(
+                    "⚠️ SELL momentum mismatch (%s) - applying penalties score:%s conf:%s",
+                    momentum["direction"],
+                    momentum_penalty_score,
+                    momentum_penalty_confidence,
+                )
+                adjusted_score += momentum_penalty_score  # score is bearish, so add penalty to move toward 50
+                adjusted_confidence -= momentum_penalty_confidence
+                decision_reasons.append(
+                    f"SELL penalty applied due to momentum {momentum['direction']}"
+                )
+            if adjusted_confidence >= min_confidence and adjusted_score <= max_sell:
+                signal = "SELL"
+                logging.info(
+                    "✅ SELL signal: adjusted_score=%.1f <= %s, adjusted_confidence=%.1f, momentum=%s",
+                    adjusted_score,
+                    max_sell,
+                    adjusted_confidence,
+                    momentum["direction"],
+                )
+                decision_reasons.append("SELL: passed thresholds")
             else:
-                logging.info(f"⏭️  SELL filtered: momentum={momentum['direction']} (price not moving down)")
+                decision_reasons.append(
+                    f"Rejected SELL: adjusted score {adjusted_score:.1f} / confidence {adjusted_confidence:.1f}"
+                )
         # If in middle range, stay NO_SIGNAL (don't force a signal)
         else:
             logging.debug(f"⏭️  NO_SIGNAL: final_score={final_score:.1f} in middle range ({max_sell} < score < {min_buy})")
+            decision_reasons.append(
+                f"Score {final_score:.1f} between thresholds ({max_sell} < score < {min_buy})"
+            )
+        logging.info(
+            "Decision summary -> signal: %s | score: %.1f | confidence: %.1f | momentum: %s | reasons: %s",
+            signal,
+            final_score,
+            confidence,
+            momentum["direction"],
+            "; ".join(decision_reasons) or "n/a",
+        )
         
         # Update metrics
         async with metrics_lock:
