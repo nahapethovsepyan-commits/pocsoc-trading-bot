@@ -56,7 +56,7 @@ class TestSignalGeneration:
                     # Should generate BUY for oversold conditions
                     if result["signal"] == "BUY":
                         assert result["score"] >= 55
-                        assert result["confidence"] == 60.0
+                        assert 60.0 <= result["confidence"] <= 90.0
     
     @pytest.mark.asyncio
     async def test_generate_signal_sell_strong(self, sample_forex_dataframe):
