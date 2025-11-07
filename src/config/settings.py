@@ -70,7 +70,8 @@ CONFIG: Dict[str, Any] = {
     "momentum_penalty_score": 7,   # Score penalty when momentum opposes signal
     "momentum_penalty_confidence": 5,  # Confidence penalty when momentum opposes signal
     # Per-user rate limiting
-    "max_user_commands_per_minute": 10,  # Maximum commands per user per minute
+    "max_user_commands_per_minute": 60,  # Allow up to 60 manual requests per minute (1 per second)
+    "user_rate_limit_window_seconds": 60,  # Sliding window for rate limiting
     # Error message configuration
     "error_message_max_length": 100,  # Maximum length for error messages (prevents info leakage)
 }

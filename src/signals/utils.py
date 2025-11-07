@@ -65,7 +65,7 @@ async def check_rate_limit():
         return True
 
 
-async def check_user_rate_limit(user_id: int, max_per_minute: int = None) -> bool:
+async def check_user_rate_limit(user_id: int, max_per_minute: int = None, window_seconds: int = None) -> bool:
     """
     Check if user has exceeded rate limit for commands.
     
@@ -77,7 +77,9 @@ async def check_user_rate_limit(user_id: int, max_per_minute: int = None) -> boo
         True if user is within rate limit, False if exceeded
     """
     if max_per_minute is None:
-        max_per_minute = CONFIG.get("max_user_commands_per_minute", 10)
+        max_per_minute = CONFIG.get("max_user_commands_per_minute", 60)
+    if window_seconds is None:
+        window_seconds = CONFIG.get("user_rate_limit_window_seconds", 60)
     
     async with user_rate_lock:
         now = datetime.now()
@@ -85,10 +87,10 @@ async def check_user_rate_limit(user_id: int, max_per_minute: int = None) -> boo
         if user_id not in USER_RATE_LIMITS:
             USER_RATE_LIMITS[user_id] = []
         
-        # Remove old entries (>1 minute)
+        # Remove entries outside sliding window
         USER_RATE_LIMITS[user_id] = [
             ts for ts in USER_RATE_LIMITS[user_id] 
-            if (now - ts).total_seconds() < 60
+            if (now - ts).total_seconds() < window_seconds
         ]
         
         if len(USER_RATE_LIMITS[user_id]) >= max_per_minute:
