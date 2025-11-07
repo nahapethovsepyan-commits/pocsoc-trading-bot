@@ -30,7 +30,7 @@ from aiogram.exceptions import TelegramConflictError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # Module imports - Phase 2 refactoring
-from src.config import CONFIG, get_bot_token, get_api_keys
+from src.config import CONFIG, get_bot_token, get_api_keys, get_openai_client as _get_openai_client
 from src.models.state import (
     SUBSCRIBED_USERS, STATS, SIGNAL_HISTORY, user_languages,
     stats_lock, history_lock, config_lock
@@ -47,8 +47,16 @@ from src.telegram.decorators import require_subscription, with_error_handling, g
 from src.utils.http_session import close_http_session
 from src.utils.helpers import sanitize_user_input, validate_config_input
 from src.utils.audit import log_config_change, log_security_event
-from src.signals.utils import check_user_rate_limit, cleanup_user_rate_limits
+from src.signals.utils import (
+    check_user_rate_limit,
+    cleanup_user_rate_limits,
+    is_trading_hours,
+)
 from typing import Tuple, Optional, Any, Union
+
+# Backwards compatibility for tests expecting these symbols at module scope
+from src.models.state import METRICS  # re-export shared metrics dictionary
+get_openai_client = _get_openai_client  # re-export GPT client getter for tests
 
 # Фильтруем warnings
 warnings.filterwarnings("ignore")
