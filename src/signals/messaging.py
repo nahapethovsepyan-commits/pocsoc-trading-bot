@@ -88,7 +88,10 @@ async def send_signal_to_user(
 
         expiration_seconds = select_allowed(expiration_override_seconds)
         if expiration_seconds is None:
-            expiration_seconds = select_allowed(user_expiration_preferences.get(chat_id))
+            user_pref = user_expiration_preferences.get(chat_id)
+            if user_pref:
+                logging.debug(f"Using user expiration preference for {chat_id}: {user_pref} seconds")
+            expiration_seconds = select_allowed(user_pref)
 
         if expiration_seconds is None:
             atr_low_threshold = CONFIG.get("atr_low_vol_threshold", 0.05)

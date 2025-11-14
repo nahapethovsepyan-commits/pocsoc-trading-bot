@@ -418,7 +418,7 @@ async def manual_signal_handler(message):
 @require_subscription
 async def expiration_select_handler(callback):
     """Handle expiration selection from inline buttons."""
-    chat_id = callback.from_user.id
+    chat_id = callback.message.chat.id
     lang, t = get_user_locale(callback.message)
 
     try:
