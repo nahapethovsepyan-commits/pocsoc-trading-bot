@@ -5,7 +5,7 @@ Signal generation logic with GPT integration.
 import asyncio
 import logging
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 from ..config import CONFIG, get_openai_client
 from ..config.settings import (
@@ -36,7 +36,7 @@ async def generate_signal() -> Dict[str, Any]:
     try:
         # Check trading hours
         if not is_trading_hours():
-            current_hour = datetime.utcnow().hour
+            current_hour = datetime.now(timezone.utc).hour
             logging.debug(f"Outside trading hours (current: {current_hour}:00 UTC), skipping analysis")
             return {
                 "signal": "NO_SIGNAL",
@@ -188,8 +188,13 @@ async def generate_signal() -> Dict[str, Any]:
                 logging.info(f"GPT still processing after {gpt_wait_timeout:.1f}s, using TA-only score")
                 reasoning = f"GPT slow response (> {gpt_wait_timeout:.1f}s), using TA only"
 
-        # Final scoring
-        final_score = float(CONFIG["gpt_weight"] * gpt_score + CONFIG["ta_weight"] * ta_score)
+        # Final scoring with safety bounds (TA must dominate decision-making)
+        gpt_min = CONFIG.get("gpt_weight_min", 0.05)
+        gpt_max = CONFIG.get("gpt_weight_max", 0.15)
+        configured_gpt_weight = CONFIG.get("gpt_weight", gpt_min)
+        gpt_weight = max(gpt_min, min(gpt_max, configured_gpt_weight))
+        ta_weight = 1.0 - gpt_weight
+        final_score = float(gpt_weight * gpt_score + ta_weight * ta_score)
 
         # Calculate confidence BEFORE signal decision (for filtering)
         # Determine preliminary direction for confidence calculation
@@ -366,7 +371,7 @@ async def main_analysis(bot=None, TEXTS=None):
             return
         
         if not is_trading_hours():
-            current_hour = datetime.utcnow().hour
+            current_hour = datetime.now(timezone.utc).hour
             logging.debug(f"Outside trading hours (current: {current_hour}:00 UTC), skipping analysis")
             return
             

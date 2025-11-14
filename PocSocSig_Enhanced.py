@@ -5,7 +5,7 @@ Features:
 - Multiple forex API sources (Twelve Data, Alpha Vantage, fallback to Binance)
 - GPT-4o-mini AI analysis (replaces LSTM)
 - Advanced technical indicators (BB, ADX, Stochastic, ATR, RSI, MACD)
-- Hybrid scoring system: GPT (40%) + Technical Analysis (60%)
+- Hybrid scoring system: GPT (10%) + Technical Analysis (90%)
 - PocketOption binary options recommendations
 - Risk management (Stop Loss, Take Profit)
 - Performance tracking
@@ -19,9 +19,12 @@ from logging.handlers import RotatingFileHandler
 import warnings
 import signal
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from collections import deque
 import re
+import io
+import csv
+import aiosqlite as _aiosqlite
 
 # Telegram imports
 from aiogram import Bot, Dispatcher, F
@@ -34,24 +37,33 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from src.config import CONFIG, get_bot_token, get_api_keys, get_openai_client as _get_openai_client
 from src.models.state import (
     SUBSCRIBED_USERS, STATS, SIGNAL_HISTORY, user_languages,
-    stats_lock, history_lock, config_lock, USER_RATE_LIMITS, user_rate_lock
+    user_expiration_preferences,
+    stats_lock, history_lock, config_lock, USER_RATE_LIMITS, user_rate_lock,
+    CACHE_MAX_SIZE, ALERT_HISTORY, API_CACHE
 )
 from src.database import (
     init_database, save_signal_to_db, load_recent_signals_from_db,
-    save_stats_to_db, backup_database, DB_PATH
+    save_stats_to_db, backup_database, DB_PATH,
+    add_subscriber_to_db, remove_subscriber_from_db,
+    load_subscribers_into_state
 )
 from src.api import fetch_forex_data
-from src.signals import generate_signal, main_analysis, send_signal_message
-from src.monitoring import check_system_health, send_alert
-from src.telegram import TEXTS, get_main_keyboard, language_keyboard
+from src.signals import generate_signal, main_analysis
+from src.signals import messaging as messaging_module
+from src.monitoring import (
+    check_system_health as monitor_check_system_health,
+    send_alert as monitor_send_alert
+)
+from src.telegram import TEXTS, get_main_keyboard, language_keyboard, get_expiration_keyboard
 from src.telegram.decorators import require_subscription, with_error_handling, get_user_locale
-from src.utils.http_session import close_http_session
+from src.utils.http_session import close_http_session, get_http_session, http_session
 from src.utils.helpers import sanitize_user_input, validate_config_input
 from src.utils.audit import log_config_change, log_security_event, log_admin_action
+from src.signals import utils as signal_utils_module
 from src.signals.utils import (
     check_user_rate_limit,
     cleanup_user_rate_limits,
-    is_trading_hours,
+    clean_markdown,
 )
 from typing import Tuple, Optional, Any, Union, Set
 
@@ -61,6 +73,79 @@ get_openai_client = _get_openai_client  # re-export GPT client getter for tests
 
 # Фильтруем warnings
 warnings.filterwarnings("ignore")
+
+# Re-export modules expected by tests
+aiosqlite = _aiosqlite
+
+
+def is_trading_hours():
+    """Backwards-compatible wrapper that honors patched datetime in tests."""
+    signal_utils_module.datetime = datetime
+    return signal_utils_module.is_trading_hours()
+
+
+def get_local_time():
+    """Backwards-compatible wrapper that honors patched datetime/timedelta in tests."""
+    signal_utils_module.datetime = datetime
+    signal_utils_module.timedelta = timedelta
+    return signal_utils_module.get_local_time()
+
+
+async def send_signal_message(
+    signal_data,
+    lang: str = 'ru',
+    bot=None,
+    TEXTS=None
+):
+    """Wrapper that defaults to global bot/TEXTS for older tests."""
+    active_bot = bot or globals().get("bot")
+    texts = TEXTS if TEXTS is not None else globals().get("TEXTS")
+    if active_bot is None or texts is None:
+        raise ValueError("bot and TEXTS must be provided to send_signal_message")
+    return await messaging_module.send_signal_message(
+        signal_data,
+        lang=lang,
+        bot=active_bot,
+        TEXTS=texts
+    )
+
+
+async def send_signal_to_user(
+    chat_id,
+    signal_data,
+    safe_reasoning,
+    bot=None,
+    TEXTS=None
+):
+    """Wrapper to maintain original signature for tests."""
+    active_bot = bot or globals().get("bot")
+    texts = TEXTS if TEXTS is not None else globals().get("TEXTS")
+    if active_bot is None or texts is None:
+        raise ValueError("bot and TEXTS must be provided to send_signal_to_user")
+    return await messaging_module.send_signal_to_user(
+        chat_id,
+        signal_data,
+        safe_reasoning,
+        active_bot,
+        texts
+    )
+
+
+async def send_alert(message_text: str, bot=None):
+    """Wrapper that defaults to global bot for compatibility."""
+    active_bot = bot or globals().get("bot")
+    if active_bot is None:
+        raise ValueError("bot must be available to send alerts")
+    return await monitor_send_alert(message_text, active_bot)
+
+
+async def check_system_health(bot=None):
+    """Wrapper that defaults to global bot for compatibility."""
+    active_bot = bot or globals().get("bot")
+    if active_bot is None:
+        raise ValueError("bot must be available to run health checks")
+    return await monitor_check_system_health(active_bot)
+
 
 # ==================== BOT INITIALIZATION ====================
 
@@ -91,6 +176,12 @@ if _admin_env:
     except ValueError:
         logging.warning("⚠️  ADMIN_USER_IDS contains invalid values. Falling back to no admin restriction.")
         ADMIN_USER_IDS = set()
+
+
+def is_admin(user_id: int) -> bool:
+    """Check if user is an administrator."""
+    return user_id in ADMIN_USER_IDS
+
 
 # Настройка логирования с ротацией файлов
 handlers = [logging.StreamHandler()]
@@ -152,7 +243,18 @@ async def start_handler(message):
     
     # Добавляем пользователя в список подписчиков
     SUBSCRIBED_USERS.add(chat_id)
+    default_lang = user_languages.get(chat_id, 'ru')
+    user_languages[chat_id] = default_lang
     logging.info(f"User {chat_id} subscribed to signals")
+
+    try:
+        await add_subscriber_to_db(
+            chat_id,
+            default_lang,
+            user_expiration_preferences.get(chat_id)
+        )
+    except Exception as e:
+        logging.error(f"Failed to persist subscriber {chat_id}: {e}")
     
     await message.answer(TEXTS['ru']['choose_language'], reply_markup=language_keyboard)
 
@@ -180,54 +282,19 @@ async def language_handler(callback):
     lang = callback.data.split("_")[1]
     user_languages[callback.message.chat.id] = lang
     t = TEXTS[lang]
+
+    try:
+        await add_subscriber_to_db(
+            callback.message.chat.id,
+            lang,
+            user_expiration_preferences.get(callback.message.chat.id)
+        )
+    except Exception as e:
+        logging.error(f"Failed to update subscriber {callback.message.chat.id} language: {e}")
     
     await callback.message.answer(t['welcome'], reply_markup=get_main_keyboard(lang), parse_mode=None)
     await callback.answer()
     
-    # Start scheduler if not running
-    if not scheduler.running:
-        # Wrap main_analysis with dependency injection
-        async def main_analysis_with_deps():
-            await main_analysis(bot=bot, TEXTS=TEXTS)
-        
-        # Wrap check_system_health with dependency injection
-        async def check_health_with_deps():
-            await check_system_health(bot=bot)
-        
-        scheduler.add_job(
-            main_analysis_with_deps,
-            "interval",
-            minutes=CONFIG['analysis_interval_minutes'],
-            id='main_analysis'
-        )
-        # Добавляем периодическую проверку здоровья системы (каждые 30 минут)
-        scheduler.add_job(
-            check_health_with_deps,
-            "interval",
-            minutes=30,
-            id='health_check'
-        )
-        
-        # Добавляем автоматический бэкап базы данных (каждые 6 часов)
-        scheduler.add_job(
-            backup_database,
-            "interval",
-            hours=6,
-            id='db_backup'
-        )
-        
-        # Добавляем периодическую очистку rate limits (каждые 10 минут)
-        scheduler.add_job(
-            cleanup_user_rate_limits,
-            "interval",
-            minutes=10,
-            id='rate_limit_cleanup'
-        )
-        scheduler.start()
-        logging.info("✓ Scheduler started")
-    
-    # Run first analysis with dependency injection
-    await main_analysis(bot=bot, TEXTS=TEXTS)
 
 @dp.message(Command("metrics"))
 @require_subscription
@@ -282,63 +349,116 @@ async def stop_handler(message):
     
     if chat_id in SUBSCRIBED_USERS:
         SUBSCRIBED_USERS.remove(chat_id)
+        try:
+            await remove_subscriber_from_db(chat_id)
+        except Exception as e:
+            logging.error(f"Failed to remove subscriber {chat_id} from database: {e}")
+        user_expiration_preferences.pop(chat_id, None)
         await message.answer(t['unsubscribed'])
         logging.info(f"User {chat_id} unsubscribed from signals")
     else:
         await message.answer(t['not_subscribed'])
 
-@dp.message(F.text.in_({"📊 СИГНАЛ", "📊 SIGNAL"}))
-@require_subscription
-async def manual_signal_handler(message):
-    """Manual signal request"""
-    lang, t = get_user_locale(message)
-    
+async def _run_manual_signal(chat_id: int, lang: str, t: dict) -> None:
+    """
+    Trigger manual signal generation after user chooses expiration.
+    """
     try:
         if not await check_rate_limit():
-            await message.answer(t['rate_limit'])
+            await bot.send_message(chat_id, t['rate_limit'])
             return
-        
-        msg = await message.answer(t['analyzing'])
-        
+
+        analyzing_msg = await bot.send_message(chat_id, t['analyzing'])
+
         signal_data = await asyncio.wait_for(generate_signal(), timeout=10.0)
-        
-        # FIX: Handle NO_SIGNAL for manual requests - show explanation
         if signal_data["signal"] == "NO_SIGNAL":
-            from src.utils.helpers import format_time
-            from src.signals.utils import get_local_time, clean_markdown
-            
             no_signal_text = f"❌ {t['signal_why_no']}\n"
             no_signal_text += f"📊 {t['signal_score'].format(score=signal_data['score'])}\n"
             no_signal_text += f"🎯 {t['signal_conf'].format(conf=signal_data['confidence'])}\n"
-            
-            if "indicators" in signal_data and signal_data["indicators"]:
+
+            if signal_data.get("indicators"):
                 indicators = signal_data["indicators"]
-                no_signal_text += f"\n📈 {t['indicators']}\n"
-                no_signal_text += f"RSI: {indicators.get('rsi', 'N/A')} | MACD: {indicators.get('macd', 'N/A')}\n"
-            
+                if indicators:
+                    no_signal_text += f"\n📈 {t['indicators']}\n"
+                    no_signal_text += f"RSI: {indicators.get('rsi', 'N/A')} | MACD: {indicators.get('macd', 'N/A')}\n"
+
             if signal_data.get("reasoning"):
                 safe_reasoning = clean_markdown(signal_data["reasoning"])
                 if safe_reasoning:
                     no_signal_text += f"\n🤖 {safe_reasoning}\n"
-            
+
             no_signal_text += f"\n⏰ {format_time(get_local_time())}"
-            await message.answer(no_signal_text)
+            await bot.send_message(chat_id, no_signal_text)
         else:
-            # Only send actual signals (BUY/SELL) via send_signal_message
             await send_signal_message(signal_data, lang, bot=bot, TEXTS=TEXTS)
             async with stats_lock:
                 STATS["signals_per_hour"] += 1
                 STATS["last_signal_time"] = datetime.now()
-                
     except asyncio.TimeoutError:
-        await message.answer(t['timeout'])
+        await bot.send_message(chat_id, t['timeout'])
     except Exception as e:
-        await message.answer(t['error'].format(error=str(e)[:100]))
+        await bot.send_message(chat_id, t['error'].format(error=str(e)[:100]))
     finally:
         try:
-            await msg.delete()
+            await analyzing_msg.delete()
         except Exception:
-            pass  # Игнорируем ошибки при удалении сообщения
+            pass
+
+
+@dp.message(F.text.in_({"📊 СИГНАЛ", "📊 SIGNAL"}))
+@require_subscription
+async def manual_signal_handler(message):
+    """Manual signal request that now requires choosing expiration."""
+    lang, t = get_user_locale(message)
+    keyboard = get_expiration_keyboard(lang)
+    await message.answer(t['select_expiration'], reply_markup=keyboard)
+
+
+@dp.callback_query(F.data.startswith("exp_select:"))
+@require_subscription
+async def expiration_select_handler(callback):
+    """Handle expiration selection from inline buttons."""
+    chat_id = callback.from_user.id
+    lang, t = get_user_locale(callback.message)
+
+    try:
+        _, raw_value = callback.data.split(":")
+        selected_seconds = int(raw_value)
+    except (ValueError, IndexError):
+        await callback.answer(t['expiration_not_supported'], show_alert=True)
+        return
+
+    allowed_options = {
+        max(1, int(value)) for value in CONFIG.get("expiration_button_seconds", [5, 10, 30, 60, 120, 180])
+    }
+    if selected_seconds not in allowed_options:
+        await callback.answer(t['expiration_not_supported'], show_alert=True)
+        return
+
+    user_expiration_preferences[chat_id] = selected_seconds
+
+    try:
+        await add_subscriber_to_db(
+            chat_id,
+            user_languages.get(chat_id, lang),
+            selected_seconds
+        )
+    except Exception as e:
+        logging.error(f"Failed to persist expiration for {chat_id}: {e}")
+
+    if selected_seconds >= 60:
+        exp_label = t['expiration_button_minutes'].format(value=selected_seconds // 60)
+    else:
+        exp_label = t['expiration_button_seconds'].format(value=selected_seconds)
+    confirmation = t['expiration_saved'].format(exp=exp_label)
+    await callback.answer(confirmation, show_alert=False)
+
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
+    await _run_manual_signal(chat_id, lang, t)
 
 @dp.message(F.text.in_({"📈 СТАТИСТИКА", "📈 STATISTICS"}))
 @require_subscription
@@ -391,7 +511,7 @@ async def settings_handler(message):
     text = t['settings_title']
     text += t['settings_min_score'].format(score=CONFIG['min_signal_score'])
     text += t['settings_min_conf'].format(conf=CONFIG['min_confidence'])
-    text += t['settings_ai_weight'].format(weight=int(CONFIG.get('gpt_weight', 0.4)*100))
+    text += t['settings_ai_weight'].format(weight=int(CONFIG.get('gpt_weight', 0.1)*100))
     text += t['settings_rr'].format(rr=CONFIG['risk_reward_ratio'])
     text += t['settings_lookback'].format(lookback=CONFIG['lookback_window'])
     text += t['settings_max_signals'].format(max=CONFIG['max_signals_per_hour'])
@@ -402,7 +522,7 @@ async def settings_handler(message):
     text += "/config min_confidence=45\n"
     text += "/config trading_hours=2-22\n"
     text += "/config trading_hours=off\n"
-    text += "/config gpt_weight=0.30\n"
+    text += "/config gpt_weight=0.10\n"
     text += "/config gpt_model=gpt-4o\n"
     text += "/config gpt_wait=2.0\n"
     
@@ -436,6 +556,9 @@ def validate_config_value(param: str, value: str) -> Tuple[bool, Optional[Union[
         - parsed_value: Parsed value (int for numeric params, str "off" or Tuple[int, int] for trading_hours, or None)
         - error_message: Error message if validation failed, None otherwise
     """
+    gpt_min = CONFIG.get("gpt_weight_min", 0.05)
+    gpt_max = CONFIG.get("gpt_weight_max", 0.15)
+
     validators = {
         'min_score': (
             lambda v: 0 <= int(v) <= 100,
@@ -453,9 +576,9 @@ def validate_config_value(param: str, value: str) -> Tuple[bool, Optional[Union[
             'positive integer'
         ),
         'gpt_weight': (
-            lambda v: 0.0 <= float(v) <= 1.0,
+            lambda v: gpt_min <= v <= gpt_max,
             float,
-            '0.0-1.0'
+            f'{gpt_min:.2f}-{gpt_max:.2f}'
         ),
         'gpt_temperature': (
             lambda v: 0.0 <= float(v) <= 2.0,
@@ -527,6 +650,17 @@ async def config_handler(message):
     """Настройки через Telegram команды (с валидацией, audit logging и rate limiting)"""
     lang, t = get_user_locale(message)
     user_id = message.chat.id
+    
+    # 🛡️ ADMIN CHECK - Must be first
+    if not is_admin(user_id):
+        await message.answer("⚠️ Access denied. Configuration changes are restricted to administrators.")
+        await log_security_event(
+            user_id=user_id,
+            event_type='unauthorized_config_attempt',
+            description=f'User {user_id} attempted to access /config without admin privileges',
+            severity='medium'
+        )
+        return
     
     # Check per-user rate limit
     if not await check_user_rate_limit(user_id):
@@ -629,7 +763,7 @@ async def config_handler(message):
             updated = True
         
         elif param == "gpt_weight":
-            old_value = CONFIG.get("gpt_weight", 0.35)
+            old_value = CONFIG.get("gpt_weight", CONFIG.get("gpt_weight_min", 0.05))
             new_weight = max(0.0, min(1.0, float(parsed_value)))
             CONFIG["gpt_weight"] = new_weight
             CONFIG["ta_weight"] = max(0.0, min(1.0, 1.0 - new_weight))
@@ -803,54 +937,81 @@ async def health_handler(message):
     lang, t = get_user_locale(message)
     
     async with metrics_lock:
-            uptime = (datetime.now() - METRICS["start_time"]).total_seconds()
-            hours = int(uptime // 3600)
-            minutes = int((uptime % 3600) // 60)
-            
-            # Проверка здоровья системы
-            health_status = "✅ Healthy"
-            issues = []
-            
-            # Проверка API
-            if METRICS["api_errors"] > 0:
-                total_api_for_error = METRICS["api_calls"] + METRICS["api_errors"]
-                error_rate = safe_divide(METRICS["api_errors"], total_api_for_error, 0.0) * 100
-                if error_rate > 10:
-                    health_status = "⚠️ Degraded"
-                    issues.append(f"High API error rate: {error_rate:.1f}%")
-            
-            # Проверка GPT
-            if METRICS["gpt_calls"] > 0:
-                gpt_error_rate = safe_divide(METRICS["gpt_errors"], METRICS["gpt_calls"], 0.0) * 100
-                if gpt_error_rate > 20:
-                    health_status = "⚠️ Degraded"
-                    issues.append(f"High GPT error rate: {gpt_error_rate:.1f}%")
-            
-            # Проверка БД
-            try:
-                import aiosqlite
-                async with aiosqlite.connect(DB_PATH) as db:
-                    await db.execute("SELECT 1")
-                db_status = "✅ Connected"
-            except Exception as db_error:
-                db_status = "❌ Error"
-                health_status = "❌ Unhealthy"
-                issues.append(f"Database connection failed: {str(db_error)[:50]}")
-                logging.error(f"Database health check failed: {db_error}")
-            
-            text = f"🏥 **Health Check**\n\n"
-            text += f"Status: {health_status}\n"
-            text += f"⏱️ Uptime: {hours}h {minutes}m\n"
-            text += f"💾 Database: {db_status}\n"
-            text += f"👥 Subscribed Users: {len(SUBSCRIBED_USERS)}\n"
-            text += f"📈 Signals Today: {METRICS['signals_generated']}\n"
-            
-            if issues:
-                text += f"\n⚠️ Issues:\n"
-                for issue in issues:
-                    text += f"• {issue}\n"
-            else:
-                text += f"\n✅ All systems operational"
+        metrics_snapshot = {
+            "start_time": METRICS.get("start_time"),
+            "api_calls": METRICS.get("api_calls", 0),
+            "api_errors": METRICS.get("api_errors", 0),
+            "gpt_calls": METRICS.get("gpt_calls", 0),
+            "gpt_errors": METRICS.get("gpt_errors", 0),
+            "signals_generated": METRICS.get("signals_generated", 0),
+        }
+    
+    async with stats_lock:
+        last_signal_time = STATS.get("last_signal_time")
+        subscribed_count = len(SUBSCRIBED_USERS)
+    
+    now = datetime.now()
+    uptime_seconds = (
+        (now - metrics_snapshot["start_time"]).total_seconds()
+        if metrics_snapshot["start_time"]
+        else 0
+    )
+    hours = int(uptime_seconds // 3600)
+    minutes = int((uptime_seconds % 3600) // 60)
+    
+    total_api = metrics_snapshot["api_calls"] + metrics_snapshot["api_errors"]
+    api_error_rate = (
+        safe_divide(metrics_snapshot["api_errors"], total_api, 0.0) * 100
+        if total_api
+        else 0.0
+    )
+    gpt_error_rate = (
+        safe_divide(metrics_snapshot["gpt_errors"], metrics_snapshot["gpt_calls"], 0.0) * 100
+        if metrics_snapshot["gpt_calls"]
+        else 0.0
+    )
+    
+    health_status = "✅ Healthy"
+    issues = []
+    if api_error_rate > CONFIG["alert_api_error_rate"]:
+        health_status = "⚠️ Degraded"
+        issues.append(f"High API error rate: {api_error_rate:.1f}%")
+    if gpt_error_rate > CONFIG["alert_gpt_error_rate"]:
+        health_status = "⚠️ Degraded"
+        issues.append(f"High GPT error rate: {gpt_error_rate:.1f}%")
+    
+    db_status = "✅ Connected"
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute("SELECT 1")
+    except Exception as db_error:
+        db_status = "❌ Error"
+        health_status = "❌ Unhealthy"
+        issues.append(f"Database connection failed: {str(db_error)[:80]}")
+        logging.error(f"Database health check failed: {db_error}")
+    
+    if last_signal_time:
+        hours_since = (now - last_signal_time).total_seconds() / 3600
+        last_signal_text = f"{last_signal_time.strftime('%Y-%m-%d %H:%M:%S')} ({hours_since:.1f}h ago)"
+    else:
+        last_signal_text = "N/A"
+    
+    text = f"🏥 **Health Check**\n\n"
+    text += f"Status: {health_status}\n"
+    text += f"⏱️ Uptime: {hours}h {minutes}m\n"
+    text += f"👥 Subscribers: {subscribed_count}\n"
+    text += f"📡 API Calls: {metrics_snapshot['api_calls']} (errors: {metrics_snapshot['api_errors']} / {api_error_rate:.1f}%)\n"
+    text += f"🤖 GPT Calls: {metrics_snapshot['gpt_calls']} (errors: {metrics_snapshot['gpt_errors']} / {gpt_error_rate:.1f}%)\n"
+    text += f"🕒 Last Signal: {last_signal_text}\n"
+    text += f"📈 Signals Generated (session): {metrics_snapshot['signals_generated']}\n"
+    text += f"💾 Database: {db_status}\n"
+    
+    if issues:
+        text += f"\n⚠️ Issues:\n"
+        for issue in issues:
+            text += f"• {issue}\n"
+    else:
+        text += f"\n✅ All systems operational"
     
     await message.answer(text, parse_mode=None)
 
@@ -891,6 +1052,44 @@ async def main():
     
     logging.info(f"Config: Min Score={CONFIG['min_signal_score']}, Confidence={CONFIG['min_confidence']}%")
     logging.info(f"Analysis Interval: {CONFIG['analysis_interval_minutes']} minutes")
+
+    # Настройка scheduler и запуск первой аналитики
+    async def main_analysis_with_deps():
+        await main_analysis(bot=bot, TEXTS=TEXTS)
+
+    async def check_health_with_deps():
+        await check_system_health(bot=bot)
+
+    if not scheduler.running:
+        scheduler.add_job(
+            main_analysis_with_deps,
+            "interval",
+            minutes=CONFIG['analysis_interval_minutes'],
+            id='main_analysis'
+        )
+        scheduler.add_job(
+            check_health_with_deps,
+            "interval",
+            minutes=30,
+            id='health_check'
+        )
+        scheduler.add_job(
+            backup_database,
+            "interval",
+            hours=6,
+            id='db_backup'
+        )
+        scheduler.add_job(
+            cleanup_user_rate_limits,
+            "interval",
+            minutes=10,
+            id='rate_limit_cleanup'
+        )
+        scheduler.start()
+        logging.info("✓ Scheduler started")
+
+    # Run first analysis immediately
+    await main_analysis_with_deps()
     
     # АГРЕССИВНОЕ удаление webhook перед стартом polling
     # Пытаемся несколько раз, так как может быть конфликт с другим экземпляром

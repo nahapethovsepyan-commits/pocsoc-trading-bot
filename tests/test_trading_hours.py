@@ -32,7 +32,7 @@ class TestTradingHours:
             # Mock current time to 12:00
             with patch('PocSocSig_Enhanced.datetime') as mock_dt:
                 mock_now = datetime(2025, 1, 1, 12, 0, 0)
-                mock_dt.utcnow.return_value = mock_now
+                mock_dt.now.return_value = mock_now
                 result = PocSocSig_Enhanced.is_trading_hours()
                 assert result is True
     
@@ -47,7 +47,7 @@ class TestTradingHours:
             # Mock current time to 8:00 (outside range)
             with patch('PocSocSig_Enhanced.datetime') as mock_dt:
                 mock_now = datetime(2025, 1, 1, 8, 0, 0)
-                mock_dt.utcnow.return_value = mock_now
+                mock_dt.now.return_value = mock_now
                 result = PocSocSig_Enhanced.is_trading_hours()
                 assert result is False
     
@@ -62,21 +62,21 @@ class TestTradingHours:
             # Test at 23:00 (should be True)
             with patch('PocSocSig_Enhanced.datetime') as mock_dt:
                 mock_now = datetime(2025, 1, 1, 23, 0, 0)
-                mock_dt.utcnow.return_value = mock_now
+                mock_dt.now.return_value = mock_now
                 result = PocSocSig_Enhanced.is_trading_hours()
                 assert result is True
             
             # Test at 1:00 (should be True)
             with patch('PocSocSig_Enhanced.datetime') as mock_dt:
                 mock_now = datetime(2025, 1, 1, 1, 0, 0)
-                mock_dt.utcnow.return_value = mock_now
+                mock_dt.now.return_value = mock_now
                 result = PocSocSig_Enhanced.is_trading_hours()
                 assert result is True
             
             # Test at 10:00 (should be False)
             with patch('PocSocSig_Enhanced.datetime') as mock_dt:
                 mock_now = datetime(2025, 1, 1, 10, 0, 0)
-                mock_dt.utcnow.return_value = mock_now
+                mock_dt.now.return_value = mock_now
                 result = PocSocSig_Enhanced.is_trading_hours()
                 assert result is False
 
@@ -90,8 +90,7 @@ class TestLocalTime:
         with patch.dict(PocSocSig_Enhanced.CONFIG, {"timezone_offset": 4}):
             with patch('PocSocSig_Enhanced.datetime') as mock_dt:
                 mock_utc = datetime(2025, 1, 1, 12, 0, 0)
-                mock_dt.utcnow.return_value = mock_utc
-                mock_dt.side_effect = lambda *args, **kw: datetime(*args, **kw)
+                mock_dt.now.return_value = mock_utc
                 
                 local_time = PocSocSig_Enhanced.get_local_time()
                 
@@ -105,8 +104,7 @@ class TestLocalTime:
         with patch.dict(PocSocSig_Enhanced.CONFIG, {"timezone_offset": 0}):
             with patch('PocSocSig_Enhanced.datetime') as mock_dt:
                 mock_utc = datetime(2025, 1, 1, 12, 0, 0)
-                mock_dt.utcnow.return_value = mock_utc
-                mock_dt.side_effect = lambda *args, **kw: datetime(*args, **kw)
+                mock_dt.now.return_value = mock_utc
                 
                 local_time = PocSocSig_Enhanced.get_local_time()
                 

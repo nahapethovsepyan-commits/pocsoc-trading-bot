@@ -24,7 +24,7 @@ class TestHealthCheckAdvanced:
         PocSocSig_Enhanced.SUBSCRIBED_USERS.add(12345)
         PocSocSig_Enhanced.ALERT_HISTORY.clear()
         
-        with patch('PocSocSig_Enhanced.send_alert', new_callable=AsyncMock) as mock_alert:
+        with patch('src.monitoring.health.send_alert', new_callable=AsyncMock) as mock_alert:
             await PocSocSig_Enhanced.check_system_health()
             
             # Should send alert
@@ -40,7 +40,7 @@ class TestHealthCheckAdvanced:
         PocSocSig_Enhanced.SUBSCRIBED_USERS.add(12345)
         PocSocSig_Enhanced.ALERT_HISTORY.clear()
         
-        with patch('PocSocSig_Enhanced.send_alert', new_callable=AsyncMock) as mock_alert:
+        with patch('src.monitoring.health.send_alert', new_callable=AsyncMock) as mock_alert:
             await PocSocSig_Enhanced.check_system_health()
             
             # Should send alert
@@ -56,7 +56,7 @@ class TestHealthCheckAdvanced:
         PocSocSig_Enhanced.ALERT_HISTORY.clear()
         
         with patch.dict(PocSocSig_Enhanced.CONFIG, {"alert_no_signals_hours": 2}):
-            with patch('PocSocSig_Enhanced.send_alert', new_callable=AsyncMock) as mock_alert:
+            with patch('src.monitoring.health.send_alert', new_callable=AsyncMock) as mock_alert:
                 await PocSocSig_Enhanced.check_system_health()
                 
                 # Should send alert
@@ -73,7 +73,7 @@ class TestHealthCheckAdvanced:
         # Set recent alert (within cooldown)
         PocSocSig_Enhanced.ALERT_HISTORY["api_error"] = datetime.now() - timedelta(minutes=30)
         
-        with patch('PocSocSig_Enhanced.send_alert', new_callable=AsyncMock) as mock_alert:
+        with patch('src.monitoring.health.send_alert', new_callable=AsyncMock) as mock_alert:
             await PocSocSig_Enhanced.check_system_health()
             
             # Should NOT send alert (cooldown active)
@@ -89,7 +89,7 @@ class TestHealthCheckAdvanced:
         PocSocSig_Enhanced.METRICS["api_calls"] = 50
         PocSocSig_Enhanced.METRICS["api_errors"] = 10
         
-        with patch('PocSocSig_Enhanced.send_alert', new_callable=AsyncMock) as mock_alert:
+        with patch('src.monitoring.health.send_alert', new_callable=AsyncMock) as mock_alert:
             await PocSocSig_Enhanced.check_system_health()
             
             # Should not send alert (no users)

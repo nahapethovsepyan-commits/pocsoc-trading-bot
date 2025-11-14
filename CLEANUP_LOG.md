@@ -83,14 +83,22 @@
 - DEPLOYMENT_QUICK_START.md
 
 ### Essential Scripts
-- test_bot_functionality.py
-- test_bot_startup.py
-- test_command_handlers.py
 - test_apis.py
-- test_module_structure.py
-- test_phase3_integration.py
 - validate_setup.py
 - backup_db.py
+
+---
+
+## Additional Cleanup (2025-11-14)
+
+### Legacy Utility Scripts Removed
+- test_bot_functionality.py (replaced by automated pytest suites)
+- test_bot_startup.py (redundant with runtime smoke tests)
+- test_command_handlers.py (duplicated coverage from `tests/`)
+- test_module_structure.py (obsolete after modular refactor)
+- test_phase3_integration.py (migration guide now points to `pytest`)
+
+These scripts required manual setup, overlapped with the maintained `tests/` package, and frequently produced flaky results due to real network/API calls. Removing them reduces confusion and ensures a single, reliable testing story centered on `pytest`.
 
 ---
 

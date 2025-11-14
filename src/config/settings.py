@@ -30,8 +30,10 @@ CONFIG: Dict[str, Any] = {
     "min_signal_score": 60,  # Tuned: allow strong setups to pass with relaxed TA filters
     "min_confidence": 65,    # Tuned: maintain quality but permit more trades
     "use_gpt": _use_gpt,
-    "gpt_weight": 0.35,      # Уменьшен вес GPT
-    "ta_weight": 0.65,       # Увеличен вес технического анализа
+    "gpt_weight": 0.10,      # GPT участвует как фильтр и объяснение
+    "ta_weight": 0.90,       # Технический анализ определяет основное решение
+    "gpt_weight_min": 0.05,  # Минимальный допустимый вес GPT
+    "gpt_weight_max": 0.15,  # Максимальный допустимый вес GPT
     "gpt_model": "gpt-4o-mini",
     "gpt_temperature": 0.1,
     "gpt_max_tokens": 10,
@@ -93,6 +95,23 @@ CONFIG: Dict[str, Any] = {
     "user_rate_limit_window_seconds": 60,  # Sliding window for rate limiting
     # Error message configuration
     "error_message_max_length": 100,  # Maximum length for error messages (prevents info leakage)
+    # Signal expiration tuning
+    "atr_low_vol_threshold": 0.05,      # ATR% below this is considered low volatility
+    "atr_mid_vol_threshold": 0.10,      # ATR% below this (but above low) is mid volatility
+    "atr_high_vol_threshold": 0.20,     # ATR% below this (but above mid) is high volatility
+    "atr_extreme_vol_threshold": 0.40,  # ATR% below this (but above high) is extreme volatility
+    "atr_ultra_vol_threshold": 0.80,    # ATR% above this treated as ultra volatility
+    "expiration_minutes_low_vol": 3,    # Calm markets
+    "expiration_minutes_mid_vol": 2,    # Normal volatility
+    "expiration_minutes_high_vol": 1,   # Elevated volatility
+    "default_expiration_minutes": 2,    # When ATR unavailable
+    "max_expiration_minutes": 3,        # Hard ceiling to avoid long exp times
+    "expiration_button_seconds": [5, 10, 30, 60, 120, 180],
+    "expiration_button_layout": [
+        [5, 10, 30],
+        [60, 120, 180]
+    ],
+    "expiration_strategy": "atr",       # 'atr' or 'manual'
 }
 
 # Lock for thread-safe config updates

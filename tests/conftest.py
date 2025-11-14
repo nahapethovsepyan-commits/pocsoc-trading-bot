@@ -30,8 +30,10 @@ def mock_config():
         "min_signal_score": 55,
         "min_confidence": 60,
         "use_gpt": False,  # По умолчанию отключаем GPT для тестов
-        "gpt_weight": 0.35,
-        "ta_weight": 0.65,
+        "gpt_weight": 0.10,
+        "ta_weight": 0.90,
+        "gpt_weight_min": 0.05,
+        "gpt_weight_max": 0.15,
         "lookback_window": 60,
         "max_signals_per_hour": 12,
         "risk_reward_ratio": 1.8,
@@ -109,6 +111,8 @@ def reset_globals():
     """Reset global state before each test"""
     # Импортируем здесь, чтобы избежать проблем с импортом
     import PocSocSig_Enhanced
+    from src.models import state as state_module
+    from src.signals import utils as signal_utils_module
     PocSocSig_Enhanced.STATS = {
         "BUY": 0,
         "SELL": 0,
@@ -120,9 +124,12 @@ def reset_globals():
         "signals_per_hour": 0,
         "hour_start": datetime.now()
     }
+    state_module.STATS = PocSocSig_Enhanced.STATS
+    state_module.API_CACHE = PocSocSig_Enhanced.API_CACHE
+    signal_utils_module.STATS = PocSocSig_Enhanced.STATS
     PocSocSig_Enhanced.SIGNAL_HISTORY = []
-    PocSocSig_Enhanced.SUBSCRIBED_USERS = set()
-    PocSocSig_Enhanced.API_CACHE = {}
+    PocSocSig_Enhanced.SUBSCRIBED_USERS.clear()
+    PocSocSig_Enhanced.API_CACHE.clear()
     yield
     # Cleanup after test
     PocSocSig_Enhanced.STATS = {
@@ -136,7 +143,48 @@ def reset_globals():
         "signals_per_hour": 0,
         "hour_start": datetime.now()
     }
+    state_module.STATS = PocSocSig_Enhanced.STATS
+    state_module.API_CACHE = PocSocSig_Enhanced.API_CACHE
+    signal_utils_module.STATS = PocSocSig_Enhanced.STATS
     PocSocSig_Enhanced.SIGNAL_HISTORY = []
-    PocSocSig_Enhanced.SUBSCRIBED_USERS = set()
-    PocSocSig_Enhanced.API_CACHE = {}
+    PocSocSig_Enhanced.SUBSCRIBED_USERS.clear()
+    PocSocSig_Enhanced.API_CACHE.clear()
+
+
+@pytest.fixture(autouse=True)
+def stub_aiosqlite_connect():
+    """Prevent real aiosqlite connections during tests to avoid thread warnings."""
+    from src.database import repository as repository_module
+
+    class DummyCursor:
+        async def fetchall(self):
+            return []
+
+        async def close(self):
+            return None
+
+    class DummyConnection:
+        def __init__(self):
+            self.row_factory = None
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def execute(self, *args, **kwargs):
+            return DummyCursor()
+
+        async def commit(self):
+            return None
+
+    def _connect_stub(*args, **kwargs):
+        return DummyConnection()
+
+    connect_mock = MagicMock(side_effect=_connect_stub)
+
+    with patch.object(repository_module.aiosqlite, "connect", connect_mock), \
+         patch("PocSocSig_Enhanced.aiosqlite.connect", connect_mock):
+        yield
 

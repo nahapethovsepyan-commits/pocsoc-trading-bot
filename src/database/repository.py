@@ -8,7 +8,13 @@ import logging
 import aiosqlite
 from datetime import datetime
 from typing import Dict, List, Any, Optional
-from ..models.state import STATS, stats_lock
+from ..models.state import (
+    STATS,
+    stats_lock,
+    SUBSCRIBED_USERS,
+    user_languages,
+    user_expiration_preferences,
+)
 
 DB_PATH = "signals.db"
 
@@ -67,9 +73,29 @@ async def init_database() -> None:
                     losses INTEGER DEFAULT 0
                 )
             """)
+
+            # Таблица подписчиков
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS subscribers (
+                    chat_id INTEGER PRIMARY KEY,
+                    language TEXT DEFAULT 'ru',
+                    expiration_seconds INTEGER,
+                    subscribed_at TEXT NOT NULL
+                )
+            """)
+
+            # Migration: ensure expiration_seconds column exists
+            try:
+                await db.execute("ALTER TABLE subscribers ADD COLUMN expiration_seconds INTEGER")
+                await db.commit()
+                logging.info("✓ Added expiration_seconds column to subscribers table")
+            except Exception:
+                pass
             
             await db.commit()
             logging.info("✓ Database initialized")
+
+        await load_subscribers_into_state()
     except Exception as e:
         logging.error(f"Database initialization error: {e}")
 
@@ -120,47 +146,48 @@ async def load_recent_signals_from_db(limit: int = 100) -> List[Dict[str, Any]]:
     try:
         async with aiosqlite.connect(DB_PATH) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute("""
+            cursor = await db.execute("""
                 SELECT * FROM signals 
                 ORDER BY timestamp DESC 
                 LIMIT ?
-            """, (limit,)) as cursor:
-                rows = await cursor.fetchall()
-                
-                signals = []
-                for row in rows:
+            """, (limit,))
+            rows = await cursor.fetchall()
+            await cursor.close()
+            
+            signals = []
+            for row in rows:
+                try:
+                    timestamp_str = row["timestamp"]
                     try:
-                        timestamp_str = row["timestamp"]
+                        signal_time = datetime.fromisoformat(timestamp_str)
+                    except (ValueError, AttributeError):
                         try:
-                            signal_time = datetime.fromisoformat(timestamp_str)
+                            signal_time = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
                         except (ValueError, AttributeError):
-                            try:
-                                signal_time = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
-                            except (ValueError, AttributeError):
-                                logging.warning(f"Invalid timestamp format: {timestamp_str}, skipping signal")
-                                continue
-                        
-                        signals.append({
-                            "signal": row["signal"],
-                            "price": float(row["price"]) if row["price"] is not None else 0.0,
-                            "score": float(row["score"]) if row["score"] is not None else 50.0,
-                            "confidence": float(row["confidence"]) if row["confidence"] is not None else 0.0,
-                            "reasoning": row["reasoning"] or "",
-                            "time": signal_time,
-                            "entry": float(row["entry"]) if row["entry"] is not None else float(row["price"]) if row["price"] is not None else 0.0,
-                            "atr": float(row["atr"]) if row.get("atr") is not None else None,
-                            "indicators": {
-                                "rsi": float(row["rsi"]) if row["rsi"] is not None else None,
-                                "macd": float(row["macd"]) if row["macd"] is not None else None
-                            }
-                        })
-                    except Exception as e:
-                        logging.error(f"Error parsing signal from database: {e}, skipping row")
-                        continue
-                
-                signals.reverse()
-                logging.info(f"✓ Loaded {len(signals)} signals from database")
-                return signals
+                            logging.warning(f"Invalid timestamp format: {timestamp_str}, skipping signal")
+                            continue
+                    
+                    signals.append({
+                        "signal": row["signal"],
+                        "price": float(row["price"]) if row["price"] is not None else 0.0,
+                        "score": float(row["score"]) if row["score"] is not None else 50.0,
+                        "confidence": float(row["confidence"]) if row["confidence"] is not None else 0.0,
+                        "reasoning": row["reasoning"] or "",
+                        "time": signal_time,
+                        "entry": float(row["entry"]) if row["entry"] is not None else float(row["price"]) if row["price"] is not None else 0.0,
+                        "atr": float(row["atr"]) if row.get("atr") is not None else None,
+                        "indicators": {
+                            "rsi": float(row["rsi"]) if row["rsi"] is not None else None,
+                            "macd": float(row["macd"]) if row["macd"] is not None else None
+                        }
+                    })
+                except Exception as e:
+                    logging.error(f"Error parsing signal from database: {e}, skipping row")
+                    continue
+            
+            signals.reverse()
+            logging.info(f"✓ Loaded {len(signals)} signals from database")
+            return signals
     except Exception as e:
         logging.error(f"Error loading signals from database: {e}")
         return []
@@ -240,5 +267,77 @@ async def backup_database() -> None:
             
     except Exception as e:
         logging.error(f"Error creating database backup: {e}")
+
+
+async def add_subscriber_to_db(
+    chat_id: int,
+    language: str = 'ru',
+    expiration_seconds: Optional[int] = None
+) -> None:
+    """
+    Persist subscriber into database.
+    """
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute("""
+                INSERT INTO subscribers (chat_id, language, expiration_seconds, subscribed_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(chat_id) DO UPDATE SET
+                    language=excluded.language,
+                    expiration_seconds=excluded.expiration_seconds,
+                    subscribed_at=excluded.subscribed_at
+            """, (
+                chat_id,
+                language or 'ru',
+                expiration_seconds,
+                datetime.now().isoformat()
+            ))
+            await db.commit()
+    except Exception as e:
+        logging.error(f"Error saving subscriber {chat_id} to database: {e}")
+
+
+async def remove_subscriber_from_db(chat_id: int) -> None:
+    """
+    Remove subscriber from database.
+    """
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute("DELETE FROM subscribers WHERE chat_id = ?", (chat_id,))
+            await db.commit()
+        user_languages.pop(chat_id, None)
+        user_expiration_preferences.pop(chat_id, None)
+    except Exception as e:
+        logging.error(f"Error removing subscriber {chat_id} from database: {e}")
+
+
+async def load_subscribers_into_state() -> None:
+    """
+    Load subscribers from DB into in-memory state on startup.
+    """
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("""
+                SELECT chat_id, language, expiration_seconds
+                FROM subscribers
+            """)
+            rows = await cursor.fetchall()
+            await cursor.close()
+
+        SUBSCRIBED_USERS.clear()
+        SUBSCRIBED_USERS.update({row["chat_id"] for row in rows})
+        user_languages.clear()
+        user_expiration_preferences.clear()
+        for row in rows:
+            lang = row.get("language") or 'ru'
+            user_languages[row["chat_id"]] = lang
+            expiration = row.get("expiration_seconds")
+            if expiration:
+                user_expiration_preferences[row["chat_id"]] = expiration
+
+        logging.info(f"✓ Loaded {len(SUBSCRIBED_USERS)} subscribers from database")
+    except Exception as e:
+        logging.error(f"Error loading subscribers from database: {e}")
 
 

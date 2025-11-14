@@ -6,9 +6,17 @@ import asyncio
 import logging
 from typing import Dict, Any, Tuple, Optional
 from ..config import CONFIG
-from ..models.state import SUBSCRIBED_USERS, STATS, SIGNAL_HISTORY, user_languages, stats_lock, history_lock
+from ..models.state import (
+    SUBSCRIBED_USERS,
+    STATS,
+    SIGNAL_HISTORY,
+    user_languages,
+    user_expiration_preferences,
+    stats_lock,
+    history_lock
+)
 from ..database import save_signal_to_db
-from ..utils.helpers import safe_divide, format_time
+from ..utils.helpers import safe_divide, format_time, format_expiration_text
 from .utils import get_local_time, clean_markdown
 
 
@@ -17,7 +25,8 @@ async def send_signal_to_user(
     signal_data: Dict[str, Any],
     safe_reasoning: str,
     bot,
-    TEXTS: Dict
+    TEXTS: Dict,
+    expiration_override_seconds: Optional[int] = None
 ) -> Tuple[int, bool]:
     """
     Send signal to a single user (helper for parallel sending).
@@ -64,17 +73,66 @@ async def send_signal_to_user(
         score = signal_data.get("score", 50)
         confidence = signal_data.get("confidence", 60)
         
-        # Expiration based on ATR
-        if atr and atr > 0:
-            atr_pct = safe_divide(atr, current_price, 0.1) * 100
-            if atr_pct < 0.05:
-                expiration_minutes = 5
-            elif atr_pct < 0.10:
-                expiration_minutes = 3
-            else:
-                expiration_minutes = 1
-        else:
-            expiration_minutes = 3
+        # Expiration based on ATR with configurable thresholds + user overrides
+        allowed_seconds = sorted(
+            {max(1, int(value)) for value in CONFIG.get("expiration_button_seconds", [5, 10, 30, 60, 120, 180])}
+        )
+
+        def select_allowed(candidate: Optional[float]) -> Optional[int]:
+            if candidate is None:
+                return None
+            candidate = max(1, int(candidate))
+            if not allowed_seconds:
+                return candidate
+            return min(allowed_seconds, key=lambda opt: abs(opt - candidate))
+
+        expiration_seconds = select_allowed(expiration_override_seconds)
+        if expiration_seconds is None:
+            expiration_seconds = select_allowed(user_expiration_preferences.get(chat_id))
+
+        if expiration_seconds is None:
+            atr_low_threshold = CONFIG.get("atr_low_vol_threshold", 0.05)
+            atr_mid_threshold = CONFIG.get("atr_mid_vol_threshold", 0.10)
+            atr_high_threshold = CONFIG.get("atr_high_vol_threshold", 0.20)
+            atr_extreme_threshold = CONFIG.get("atr_extreme_vol_threshold", 0.40)
+            atr_ultra_threshold = CONFIG.get("atr_ultra_vol_threshold", 0.80)
+
+            exp_low_minutes = CONFIG.get("expiration_minutes_low_vol", 3)
+            exp_mid_minutes = CONFIG.get("expiration_minutes_mid_vol", 2)
+            exp_high_minutes = CONFIG.get("expiration_minutes_high_vol", 1)
+            exp_default_minutes = CONFIG.get("default_expiration_minutes", exp_mid_minutes)
+            max_exp_minutes = max(1, CONFIG.get("max_expiration_minutes", exp_low_minutes))
+
+            exp_low = exp_low_minutes * 60
+            exp_mid = exp_mid_minutes * 60
+            exp_high = exp_high_minutes * 60
+            exp_default = exp_default_minutes * 60
+            max_expiration = max_exp_minutes * 60
+
+            def clamp_candidate(value: float) -> float:
+                return min(value, max_expiration)
+
+            candidate_seconds = clamp_candidate(exp_default)
+            if atr and atr > 0:
+                atr_pct = safe_divide(atr, current_price, 0.1) * 100
+                if atr_pct < atr_low_threshold:
+                    candidate_seconds = clamp_candidate(exp_low)
+                elif atr_pct < atr_mid_threshold:
+                    candidate_seconds = clamp_candidate(exp_mid)
+                elif atr_pct < atr_high_threshold:
+                    candidate_seconds = clamp_candidate(exp_high)
+                elif atr_pct < atr_extreme_threshold:
+                    candidate_seconds = 30
+                elif atr_pct < atr_ultra_threshold:
+                    candidate_seconds = 10
+                else:
+                    candidate_seconds = 5
+            expiration_seconds = select_allowed(candidate_seconds)
+
+        if expiration_seconds is None:
+            expiration_seconds = allowed_seconds[-1] if allowed_seconds else 120
+
+        signal_data["expiration_seconds"] = expiration_seconds
         
         # Bet size based on score and confidence
         if score >= 70 and confidence >= 65:
@@ -117,7 +175,7 @@ async def send_signal_to_user(
             text += "\n"
         
         text += f"🎲 {t['signal_po_rec']}\n"
-        text += f"⏱️ {t['signal_exp'].format(exp=expiration_minutes)}\n"
+        text += f"⏱️ {format_expiration_text(expiration_seconds, t)}\n"
         text += f"💵 {t['signal_bet'].format(bet=bet_percent)}\n"
         text += f"💰 {t['signal_suggested'].format(suggested=suggested_amount)}\n"
         text += f"{risk_emoji} {t['signal_risk'].format(risk=risk_level)}\n\n"

@@ -79,7 +79,7 @@
 - ✅ Генерация торговых сигналов EUR/USD
 - ✅ GPT-4o-mini AI анализ
 - ✅ Множество технических индикаторов (RSI, MACD, BB, ADX, Stochastic, ATR)
-- ✅ Гибридная система скоринга (GPT 35% + TA 65%)
+- ✅ Гибридная система скоринга (GPT 10% + TA 90%)
 - ✅ Управление рисками (Stop Loss, Take Profit)
 - ✅ Telegram интерфейс
 - ✅ Множественные источники API (Twelve Data, Alpha Vantage, Binance fallback)

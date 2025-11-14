@@ -30,7 +30,7 @@ class TestEdgeCases:
         """Test generate_signal with empty DataFrame"""
         empty_df = pd.DataFrame()
         
-        with patch('PocSocSig_Enhanced.fetch_forex_data', new_callable=AsyncMock) as mock_fetch:
+        with patch('src.signals.generator.fetch_forex_data', new_callable=AsyncMock) as mock_fetch:
             mock_fetch.return_value = empty_df
             with patch('PocSocSig_Enhanced.is_trading_hours', return_value=True):
                 result = await PocSocSig_Enhanced.generate_signal()
@@ -42,7 +42,7 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_generate_signal_none_data(self):
         """Test generate_signal when fetch returns None"""
-        with patch('PocSocSig_Enhanced.fetch_forex_data', new_callable=AsyncMock) as mock_fetch:
+        with patch('src.signals.generator.fetch_forex_data', new_callable=AsyncMock) as mock_fetch:
             mock_fetch.return_value = None
             with patch('PocSocSig_Enhanced.is_trading_hours', return_value=True):
                 result = await PocSocSig_Enhanced.generate_signal()
@@ -107,10 +107,11 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_load_recent_signals_from_db_empty(self):
         """Test loading signals from empty database"""
-        with patch('PocSocSig_Enhanced.aiosqlite.connect') as mock_connect:
+        with patch('src.database.repository.aiosqlite.connect') as mock_connect:
             mock_db = AsyncMock()
             mock_cursor = AsyncMock()
             mock_cursor.fetchall = AsyncMock(return_value=[])
+            mock_cursor.close = AsyncMock(return_value=None)
             mock_db.execute.return_value = mock_cursor
             mock_connect.return_value.__aenter__ = AsyncMock(return_value=mock_db)
             mock_connect.return_value.__aexit__ = AsyncMock(return_value=None)
@@ -128,7 +129,7 @@ class TestEdgeCases:
             # Missing required fields
         }
         
-        with patch('PocSocSig_Enhanced.aiosqlite.connect') as mock_connect:
+        with patch('src.database.repository.aiosqlite.connect') as mock_connect:
             mock_db = AsyncMock()
             mock_db.execute = AsyncMock(side_effect=Exception("Invalid data"))
             mock_connect.return_value.__aenter__ = AsyncMock(return_value=mock_db)

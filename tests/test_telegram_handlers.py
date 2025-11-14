@@ -24,17 +24,20 @@ class TestTelegramHandlers:
         # Clear subscribed users
         PocSocSig_Enhanced.SUBSCRIBED_USERS.clear()
         
-        # Mock bot and message.answer
-        with patch('PocSocSig_Enhanced.bot') as mock_bot:
+        # Mock bot and persistence
+        with patch('PocSocSig_Enhanced.bot'):
             mock_message.answer = AsyncMock()
-            
-            await PocSocSig_Enhanced.start_handler(mock_message)
-            
-            # Check user was added
-            assert mock_message.chat.id in PocSocSig_Enhanced.SUBSCRIBED_USERS
-            
-            # Check message was sent
-            mock_message.answer.assert_called_once()
+            with patch('PocSocSig_Enhanced.add_subscriber_to_db', new_callable=AsyncMock) as mock_add:
+                await PocSocSig_Enhanced.start_handler(mock_message)
+                
+                # Check user was added
+                assert mock_message.chat.id in PocSocSig_Enhanced.SUBSCRIBED_USERS
+                
+                # DB persistence called
+                mock_add.assert_called_once()
+                
+                # Check message was sent
+                mock_message.answer.assert_called_once()
     
     @pytest.mark.asyncio
     async def test_language_handler(self):
@@ -46,11 +49,7 @@ class TestTelegramHandlers:
         mock_callback.message.answer = AsyncMock()
         mock_callback.answer = AsyncMock()
         
-        # Mock scheduler
-        with patch('PocSocSig_Enhanced.scheduler') as mock_scheduler:
-            mock_scheduler.running = False
-            mock_scheduler.add_job = MagicMock()
-            
+        with patch('PocSocSig_Enhanced.add_subscriber_to_db', new_callable=AsyncMock):
             await PocSocSig_Enhanced.language_handler(mock_callback)
             
             # Check language was set
@@ -70,31 +69,18 @@ class TestTelegramHandlers:
         # Add user to subscribed
         PocSocSig_Enhanced.SUBSCRIBED_USERS.add(12345)
         
-        # Mock signal generation
-        mock_signal = {
-            "signal": "BUY",
-            "price": 1.0800,
-            "score": 65,
-            "confidence": 60,
-            "reasoning": "Test signal",
-            "time": datetime.now(),
-            "indicators": {},
-            "atr": 0.0003
-        }
-        
-        with patch('PocSocSig_Enhanced.generate_signal', new_callable=AsyncMock) as mock_generate:
-            mock_generate.return_value = mock_signal
-            with patch('PocSocSig_Enhanced.send_signal_message', new_callable=AsyncMock):
-                with patch('PocSocSig_Enhanced.bot') as mock_bot:
-                    mock_message.answer = AsyncMock()
-                    
-                    await PocSocSig_Enhanced.manual_signal_handler(mock_message)
-                    
-                    # Check signal was generated
-                    mock_generate.assert_called_once()
-                    
-                    # Check message was sent (analyzing message)
-                    assert mock_message.answer.called
+        with patch('PocSocSig_Enhanced.get_expiration_keyboard') as mock_keyboard:
+            keyboard = MagicMock()
+            mock_keyboard.return_value = keyboard
+            mock_message.answer = AsyncMock()
+            
+            await PocSocSig_Enhanced.manual_signal_handler(mock_message)
+            
+            # Ensure prompt was sent with keyboard
+            mock_message.answer.assert_called_once()
+            args, kwargs = mock_message.answer.call_args
+            assert "⏱" in args[0] or "Choose" in args[0]
+            assert kwargs.get('reply_markup') == keyboard
     
     @pytest.mark.asyncio
     async def test_manual_signal_handler_rate_limit(self):
@@ -110,18 +96,20 @@ class TestTelegramHandlers:
         PocSocSig_Enhanced.STATS["signals_per_hour"] = 15
         PocSocSig_Enhanced.STATS["hour_start"] = datetime.now()
         
+        t = PocSocSig_Enhanced.TEXTS['ru']
         with patch.dict(PocSocSig_Enhanced.CONFIG, {"max_signals_per_hour": 12}):
             with patch('PocSocSig_Enhanced.check_rate_limit', new_callable=AsyncMock) as mock_check:
                 mock_check.return_value = False
                 with patch('PocSocSig_Enhanced.bot') as mock_bot:
-                    mock_message.answer = AsyncMock()
+                    mock_bot.send_message = AsyncMock()
                     
-                    await PocSocSig_Enhanced.manual_signal_handler(mock_message)
+                    await PocSocSig_Enhanced._run_manual_signal(12345, 'ru', t)
                     
                     # Check rate limit message was sent
-                    assert mock_message.answer.called
-                    call_args = mock_message.answer.call_args[0][0]
-                    assert "лимит" in call_args.lower() or "limit" in call_args.lower()
+                    mock_bot.send_message.assert_awaited()
+                    args, _ = mock_bot.send_message.call_args
+                    assert args[0] == 12345
+                    assert args[1] == t['rate_limit']
     
     @pytest.mark.asyncio
     async def test_get_main_keyboard(self):

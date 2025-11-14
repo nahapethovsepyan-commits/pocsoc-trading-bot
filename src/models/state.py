@@ -24,6 +24,7 @@ STATS: Dict[str, Any] = {
 
 SIGNAL_HISTORY: deque = deque(maxlen=100)  # Will be updated from CONFIG
 user_languages: Dict[int, str] = {}
+user_expiration_preferences: Dict[int, int] = {}  # chat_id -> expiration seconds override
 
 # Locks для thread-safe доступа к глобальному состоянию
 stats_lock = asyncio.Lock()

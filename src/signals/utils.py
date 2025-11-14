@@ -4,7 +4,7 @@ Signal generation utilities.
 
 import re
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from ..config import CONFIG
 from ..models.state import STATS, stats_lock, USER_RATE_LIMITS, user_rate_lock
 
@@ -15,10 +15,10 @@ def get_local_time():
     Returns:
         Локальное время с учетом часового пояса.
     """
-    utc_now = datetime.utcnow()
+    utc_now = datetime.now(timezone.utc)
     offset = timedelta(hours=CONFIG.get("timezone_offset", 0))
     local_time = utc_now + offset
-    return local_time
+    return local_time.replace(tzinfo=None)
 
 
 def is_trading_hours():
@@ -31,7 +31,7 @@ def is_trading_hours():
     if not CONFIG["trading_hours_enabled"]:
         return True
     
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     hour = now.hour
     
     start_hour = CONFIG["trading_start_hour"]

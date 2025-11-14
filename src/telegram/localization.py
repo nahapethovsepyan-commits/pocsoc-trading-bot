@@ -47,7 +47,8 @@ TEXTS = {
         'signal_score': "Балл: {score}/100",
         'signal_conf': "Уверенность: {conf}%",
         'signal_po_rec': "Рекомендации POCKETOPTION:",
-        'signal_exp': "Срок: {exp} минут",
+        'signal_exp_minutes': "Срок: {exp} минут",
+        'signal_exp_seconds': "Срок: {exp} секунд",
         'signal_bet': "Размер ставки: {bet:.1f}% баланса",
         'signal_suggested': "Рекомендуемая: ${suggested:.0f} (если баланс = $1000)",
         'signal_risk': "Уровень риска: {risk}",
@@ -66,7 +67,13 @@ TEXTS = {
         'indicators': "Индикаторы:",
         'risk_low': "LOW",
         'risk_medium': "MEDIUM",
-        'risk_high': "HIGH"
+        'risk_high': "HIGH",
+        'select_expiration': "⏱️ Выберите срок экспирации:",
+        'expiration_saved': "✅ Срок {exp} установлен. Запускаю анализ...",
+        'expiration_button_seconds': "{value} сек",
+        'expiration_button_minutes': "{value} мин",
+        'expiration_not_supported': "⚠️ Такой срок недоступен.",
+        'expiration_no_users': "Нет подписчиков для отправки сигнала."
     },
     'en': {
         'choose_language': "Choose language / Выберите язык",
@@ -112,7 +119,8 @@ TEXTS = {
         'signal_score': "Score: {score}/100",
         'signal_conf': "Confidence: {conf}%",
         'signal_po_rec': "POCKETOPTION RECOMMENDATIONS:",
-        'signal_exp': "Expiration: {exp} minutes",
+        'signal_exp_minutes': "Expiration: {exp} minutes",
+        'signal_exp_seconds': "Expiration: {exp} seconds",
         'signal_bet': "Bet Size: {bet:.1f}% of balance",
         'signal_suggested': "Suggested: ${suggested:.0f} (if balance = $1000)",
         'signal_risk': "Risk Level: {risk}",
@@ -131,7 +139,13 @@ TEXTS = {
         'indicators': "Indicators:",
         'risk_low': "LOW",
         'risk_medium': "MEDIUM",
-        'risk_high': "HIGH"
+        'risk_high': "HIGH",
+        'select_expiration': "⏱️ Choose expiration:",
+        'expiration_saved': "✅ Expiration {exp} set. Running analysis...",
+        'expiration_button_seconds': "{value}s",
+        'expiration_button_minutes': "{value}m",
+        'expiration_not_supported': "⚠️ This expiration is not available.",
+        'expiration_no_users': "No subscribers to send the signal."
     }
 }
 

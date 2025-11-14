@@ -234,10 +234,10 @@ CONFIG = {
 
 ## Testing
 
-### Run Integration Tests
+### Run Automated Suite
 
 ```bash
-python3 test_phase3_integration.py
+pytest -v
 ```
 
 ### Test Individual Modules

@@ -140,7 +140,7 @@ RSI: 28.3 | MACD: 0.00015
 
 ### Scoring Breakdown
 
-- **GPT-4o-mini** (35% weight) - AI analysis
+- **GPT-4o-mini** (10% weight) - AI analysis / reasoning
 - **RSI** - Overbought/oversold (main indicator)
 - **MACD** - Momentum (main indicator)
 - **Bollinger Bands** - Volatility (bonus confirmation)
@@ -189,7 +189,7 @@ CONFIG = {
 - `gpt_request_timeout`: how long to wait for the OpenAI API call (seconds).
 - `gpt_wait_timeout`: how long the bot waits for GPT before falling back to TA-only output.
 - `gpt_temperature`: controls randomness (0 = deterministic, 1 = creative).
-- `gpt_weight` / `ta_weight`: adjust hybrid scoring balance (`/config gpt_weight=0.30` in Telegram updates both).
+- `gpt_weight` / `ta_weight`: adjust hybrid scoring balance (`/config gpt_weight=0.10` keeps GPT in the 5-15% safety band).
 - `gpt_prompt_template`: multi-line string used to build the user prompt (editable directly in `settings.py`).
 - `gpt_system_prompt`: system instruction for GPT (also editable in `settings.py`).
 

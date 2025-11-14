@@ -4,6 +4,7 @@ Main forex data fetcher with caching and retry logic.
 
 import asyncio
 import logging
+import aiohttp
 import pandas as pd
 from datetime import datetime
 from typing import Optional, Tuple
@@ -75,8 +76,36 @@ async def fetch_forex_data(pair: str = "EUR/USD", max_retries: int = 3) -> Optio
     # Check cache with adaptive duration
     cache_key = f"forex_data:{pair}"
     async with cache_lock:
-        if cache_key in API_CACHE:
-            cached_time, cached_data, cached_atr, cached_price = API_CACHE[cache_key]
+        lookup_key = cache_key
+        if lookup_key not in API_CACHE:
+            legacy_keys = [
+                f"{pair}_twelvedata",
+                f"{pair}_alphavantage",
+                f"{pair}_binance",
+            ]
+            for legacy_key in legacy_keys:
+                if legacy_key in API_CACHE:
+                    lookup_key = legacy_key
+                    break
+
+        if lookup_key in API_CACHE:
+            cached_entry = API_CACHE[lookup_key]
+            cached_time = datetime.now()
+            cached_data = None
+            cached_atr = None
+            cached_price = None
+
+            if isinstance(cached_entry, tuple):
+                cached_time = cached_entry[0]
+                cached_data = cached_entry[1]
+                cached_atr = cached_entry[2] if len(cached_entry) > 2 else None
+                cached_price = cached_entry[3] if len(cached_entry) > 3 else None
+            elif isinstance(cached_entry, dict):
+                cached_time = cached_entry.get("timestamp", datetime.now())
+                cached_data = cached_entry.get("data")
+                cached_atr = cached_entry.get("atr")
+                cached_price = cached_entry.get("price") or cached_entry.get("close")
+            
             age = (datetime.now() - cached_time).total_seconds()
             
             # Determine adaptive cache duration based on last ATR
@@ -85,7 +114,7 @@ async def fetch_forex_data(pair: str = "EUR/USD", max_retries: int = 3) -> Optio
             else:
                 adaptive_duration = CONFIG["cache_duration_seconds"]
             
-            if age < adaptive_duration:
+            if cached_data is not None and age < adaptive_duration:
                 logging.debug(f"Using cached data for {pair} (age: {age:.1f}s, max: {adaptive_duration}s)")
                 async with metrics_lock:
                     METRICS["api_cache_hits"] += 1

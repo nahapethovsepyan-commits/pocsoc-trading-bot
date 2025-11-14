@@ -34,7 +34,7 @@ class TestDatabase:
         mock_context.__aenter__ = AsyncMock(return_value=mock_db_connection)
         mock_context.__aexit__ = AsyncMock(return_value=None)
         
-        with patch('PocSocSig_Enhanced.aiosqlite.connect', return_value=mock_context):
+        with patch('src.database.repository.aiosqlite.connect', return_value=mock_context):
             await PocSocSig_Enhanced.save_signal_to_db(signal_data)
             
             # Check that execute was called
@@ -56,11 +56,15 @@ class TestDatabase:
             0.0001,
             0.0003
         )
-        mock_db_connection.fetchall = AsyncMock(return_value=[mock_row])
-        mock_db_connection.execute.return_value = mock_db_connection
+        mock_cursor = AsyncMock()
+        mock_cursor.fetchall = AsyncMock(return_value=[mock_row])
+        mock_cursor.close = AsyncMock(return_value=None)
+        mock_db_connection.execute.return_value = mock_cursor
+        mock_context = AsyncMock()
+        mock_context.__aenter__ = AsyncMock(return_value=mock_db_connection)
+        mock_context.__aexit__ = AsyncMock(return_value=None)
         
-        with patch('aiosqlite.connect', new_callable=AsyncMock) as mock_connect:
-            mock_connect.return_value.__aenter__.return_value = mock_db_connection
+        with patch('src.database.repository.aiosqlite.connect', return_value=mock_context):
             signals = await PocSocSig_Enhanced.load_recent_signals_from_db(limit=10)
             
             assert isinstance(signals, list)
@@ -111,10 +115,67 @@ class TestDatabase:
         mock_context.__aenter__ = AsyncMock(return_value=mock_db_connection)
         mock_context.__aexit__ = AsyncMock(return_value=None)
         
-        with patch('PocSocSig_Enhanced.aiosqlite.connect', return_value=mock_context):
+        with patch('src.database.repository.aiosqlite.connect', return_value=mock_context):
             await PocSocSig_Enhanced.init_database()
             
             # Check that execute was called (for table creation)
             assert mock_db_connection.execute.called
             assert mock_db_connection.commit.called
+
+    @pytest.mark.asyncio
+    async def test_add_subscriber_to_db(self, mock_db_connection):
+        """Ensure subscribers are persisted"""
+        mock_context = AsyncMock()
+        mock_context.__aenter__ = AsyncMock(return_value=mock_db_connection)
+        mock_context.__aexit__ = AsyncMock(return_value=None)
+        
+        with patch('src.database.repository.aiosqlite.connect', return_value=mock_context):
+            await PocSocSig_Enhanced.add_subscriber_to_db(12345, 'en')
+            mock_db_connection.execute.assert_called()
+            mock_db_connection.commit.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_remove_subscriber_from_db(self, mock_db_connection):
+        """Ensure subscribers can be removed"""
+        mock_context = AsyncMock()
+        mock_context.__aenter__ = AsyncMock(return_value=mock_db_connection)
+        mock_context.__aexit__ = AsyncMock(return_value=None)
+        
+        with patch('src.database.repository.aiosqlite.connect', return_value=mock_context):
+            await PocSocSig_Enhanced.remove_subscriber_from_db(12345)
+            mock_db_connection.execute.assert_called_with("DELETE FROM subscribers WHERE chat_id = ?", (12345,))
+            mock_db_connection.commit.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_load_subscribers_into_state(self):
+        """Subscribers are loaded into memory on startup"""
+        mock_db = AsyncMock()
+        mock_db.__aenter__.return_value = mock_db
+        mock_db.__aexit__.return_value = None
+        mock_db.row_factory = None
+
+        class DummyCursor:
+            async def __aenter__(self_inner):
+                return self_inner
+
+            async def __aexit__(self_inner, exc_type, exc, tb):
+                return False
+
+            async def fetchall(self_inner):
+                return [{"chat_id": 777, "language": "en", "expiration_seconds": 90}]
+
+            async def close(self_inner):
+                return None
+
+        mock_db.execute = AsyncMock(return_value=DummyCursor())
+
+        PocSocSig_Enhanced.SUBSCRIBED_USERS.clear()
+        PocSocSig_Enhanced.user_languages.clear()
+
+        with patch('src.database.repository.aiosqlite.connect', return_value=mock_db):
+            await PocSocSig_Enhanced.load_subscribers_into_state()
+
+        assert 777 in PocSocSig_Enhanced.SUBSCRIBED_USERS
+        assert PocSocSig_Enhanced.user_languages[777] == 'en'
+        assert PocSocSig_Enhanced.user_expiration_preferences[777] == 90
 

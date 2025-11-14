@@ -231,7 +231,7 @@ CONFIG = {
 
 ### Signal Components
 
-1. **GPT-4o-mini (35% weight)**
+1. **GPT-4o-mini (10% weight)**
    - AI analysis of market conditions
    - Considers all indicators together
 
@@ -258,7 +258,7 @@ CONFIG = {
 
 ### Scoring Formula
 
-- **Final Score = GPT Weight (35%) × GPT Score + TA Weight (65%) × TA Score**
+- **Final Score = GPT Weight (10%) × GPT Score + TA Weight (90%) × TA Score**
 - **Minimum to Signal:** 55 points (configurable)
 - **Confidence:** Fixed at 60% for signals
 

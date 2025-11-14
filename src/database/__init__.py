@@ -9,6 +9,9 @@ from .repository import (
     load_recent_signals_from_db,
     save_stats_to_db,
     backup_database,
+    add_subscriber_to_db,
+    remove_subscriber_from_db,
+    load_subscribers_into_state,
 )
 
 __all__ = [
@@ -18,6 +21,9 @@ __all__ = [
     'load_recent_signals_from_db',
     'save_stats_to_db',
     'backup_database',
+    'add_subscriber_to_db',
+    'remove_subscriber_from_db',
+    'load_subscribers_into_state',
 ]
 
 

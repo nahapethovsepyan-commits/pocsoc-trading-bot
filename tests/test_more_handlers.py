@@ -62,14 +62,17 @@ class TestMoreHandlers:
         
         with patch('PocSocSig_Enhanced.bot'):
             mock_message.answer = AsyncMock()
-            
-            await PocSocSig_Enhanced.stop_handler(mock_message)
-            
-            # Check user was removed
-            assert 12345 not in PocSocSig_Enhanced.SUBSCRIBED_USERS
-            
-            # Check message was sent
-            assert mock_message.answer.called
+            with patch('PocSocSig_Enhanced.remove_subscriber_from_db', new_callable=AsyncMock) as mock_remove:
+                await PocSocSig_Enhanced.stop_handler(mock_message)
+                
+                # Check user was removed
+                assert 12345 not in PocSocSig_Enhanced.SUBSCRIBED_USERS
+                
+                # Persistence called
+                mock_remove.assert_called_once_with(12345)
+                
+                # Check message was sent
+                assert mock_message.answer.called
     
     @pytest.mark.asyncio
     async def test_settings_handler(self):

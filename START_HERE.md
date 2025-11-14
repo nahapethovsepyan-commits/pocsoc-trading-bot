@@ -266,11 +266,11 @@ CONFIG = {
 2. **MACD** - Momentum (main indicator)
 3. **Bollinger Bands** - Volatility (bonus confirmation)
 4. **ATR** - For Stop Loss/Take Profit calculation
-5. **GPT-4o-mini** - AI analysis (35% weight)
+5. **GPT-4o-mini** - AI analysis (10% weight)
 6. **ADX** - Trend Strength (display only)
 7. **Stochastic** - Momentum oscillator (display only)
 
-Scoring: GPT (35%) + Technical Analysis (65%)
+Scoring: GPT (10%) + Technical Analysis (90%)
 
 ---
 

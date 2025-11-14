@@ -25,7 +25,7 @@ class TestSignalGeneration:
             "trading_end_hour": 17,
             "default_price": 1.0800
         }):
-            with patch('src.signals.utils.is_trading_hours', return_value=False):
+            with patch('src.signals.generator.is_trading_hours', return_value=False):
                 result = await PocSocSig_Enhanced.generate_signal()
                 
                 assert result["signal"] == "NO_SIGNAL"
@@ -43,9 +43,9 @@ class TestSignalGeneration:
         df['high'] = df['close'] * 1.0002
         df['low'] = df['close'] * 0.9998
         
-        with patch('PocSocSig_Enhanced.fetch_forex_data', new_callable=AsyncMock) as mock_fetch:
+        with patch('src.signals.generator.fetch_forex_data', new_callable=AsyncMock) as mock_fetch:
             mock_fetch.return_value = df
-            with patch('src.signals.utils.is_trading_hours', return_value=True):
+            with patch('src.signals.generator.is_trading_hours', return_value=True):
                 with patch.dict(PocSocSig_Enhanced.CONFIG, {"use_gpt": False}):
                     result = await PocSocSig_Enhanced.generate_signal()
                     
@@ -68,9 +68,9 @@ class TestSignalGeneration:
         df['high'] = df['close'] * 1.0002
         df['low'] = df['close'] * 0.9998
         
-        with patch('PocSocSig_Enhanced.fetch_forex_data', new_callable=AsyncMock) as mock_fetch:
+        with patch('src.signals.generator.fetch_forex_data', new_callable=AsyncMock) as mock_fetch:
             mock_fetch.return_value = df
-            with patch('src.signals.utils.is_trading_hours', return_value=True):
+            with patch('src.signals.generator.is_trading_hours', return_value=True):
                 with patch.dict(PocSocSig_Enhanced.CONFIG, {"use_gpt": False}):
                     result = await PocSocSig_Enhanced.generate_signal()
                     
@@ -84,9 +84,9 @@ class TestSignalGeneration:
     @pytest.mark.asyncio
     async def test_generate_signal_no_data(self):
         """Test signal generation when no data is available"""
-        with patch('PocSocSig_Enhanced.fetch_forex_data', new_callable=AsyncMock) as mock_fetch:
+        with patch('src.signals.generator.fetch_forex_data', new_callable=AsyncMock) as mock_fetch:
             mock_fetch.return_value = None
-            with patch('src.signals.utils.is_trading_hours', return_value=True):
+            with patch('src.signals.generator.is_trading_hours', return_value=True):
                 result = await PocSocSig_Enhanced.generate_signal()
                 assert result["signal"] in {"NO_SIGNAL", "BUY", "SELL"}
                 assert result["reasoning"]  # reasoning should describe fallback
@@ -96,9 +96,9 @@ class TestSignalGeneration:
         """Test signal generation with empty DataFrame"""
         empty_df = pd.DataFrame()
         
-        with patch('PocSocSig_Enhanced.fetch_forex_data', new_callable=AsyncMock) as mock_fetch:
+        with patch('src.signals.generator.fetch_forex_data', new_callable=AsyncMock) as mock_fetch:
             mock_fetch.return_value = empty_df
-            with patch('src.signals.utils.is_trading_hours', return_value=True):
+            with patch('src.signals.generator.is_trading_hours', return_value=True):
                 result = await PocSocSig_Enhanced.generate_signal()
                 assert result["signal"] in {"NO_SIGNAL", "BUY", "SELL"}
                 assert result["reasoning"]
@@ -106,9 +106,9 @@ class TestSignalGeneration:
     @pytest.mark.asyncio
     async def test_generate_signal_with_gpt(self, sample_forex_dataframe, mock_gpt_client):
         """Test signal generation with GPT enabled"""
-        with patch('PocSocSig_Enhanced.fetch_forex_data', new_callable=AsyncMock) as mock_fetch:
+        with patch('src.signals.generator.fetch_forex_data', new_callable=AsyncMock) as mock_fetch:
             mock_fetch.return_value = sample_forex_dataframe
-            with patch('src.signals.utils.is_trading_hours', return_value=True):
+            with patch('src.signals.generator.is_trading_hours', return_value=True):
                 with patch.dict(PocSocSig_Enhanced.CONFIG, {"use_gpt": True}):
                     with patch('src.config.get_openai_client', return_value=(mock_gpt_client, True)):
                         with patch('src.signals.generator.get_openai_client', return_value=(mock_gpt_client, True)):
@@ -126,9 +126,9 @@ class TestSignalGeneration:
         """Test that signal score is always between 0 and 100"""
         df = sample_forex_dataframe.copy()
         
-        with patch('PocSocSig_Enhanced.fetch_forex_data', new_callable=AsyncMock) as mock_fetch:
+        with patch('src.signals.generator.fetch_forex_data', new_callable=AsyncMock) as mock_fetch:
             mock_fetch.return_value = df
-            with patch('src.signals.utils.is_trading_hours', return_value=True):
+            with patch('src.signals.generator.is_trading_hours', return_value=True):
                 with patch.dict(PocSocSig_Enhanced.CONFIG, {"use_gpt": False}):
                     result = await PocSocSig_Enhanced.generate_signal()
                     
@@ -139,9 +139,9 @@ class TestSignalGeneration:
         """Test that confidence is fixed at 60 for signals"""
         df = sample_forex_dataframe.copy()
         
-        with patch('PocSocSig_Enhanced.fetch_forex_data', new_callable=AsyncMock) as mock_fetch:
+        with patch('src.signals.generator.fetch_forex_data', new_callable=AsyncMock) as mock_fetch:
             mock_fetch.return_value = df
-            with patch('src.signals.utils.is_trading_hours', return_value=True):
+            with patch('src.signals.generator.is_trading_hours', return_value=True):
                 with patch.dict(PocSocSig_Enhanced.CONFIG, {"use_gpt": False}):
                     result = await PocSocSig_Enhanced.generate_signal()
                     

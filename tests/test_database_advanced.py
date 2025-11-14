@@ -44,7 +44,7 @@ class TestDatabaseAdvanced:
         mock_context.__aenter__ = AsyncMock(return_value=mock_db)
         mock_context.__aexit__ = AsyncMock(return_value=None)
         
-        with patch('PocSocSig_Enhanced.aiosqlite.connect', return_value=mock_context):
+        with patch('src.database.repository.aiosqlite.connect', return_value=mock_context):
             await PocSocSig_Enhanced.save_signal_to_db(signal_data)
             
             assert mock_db.execute.called
@@ -80,13 +80,14 @@ class TestDatabaseAdvanced:
         }.get(key, default)
         
         mock_cursor.fetchall = AsyncMock(return_value=[mock_row])
+        mock_cursor.close = AsyncMock(return_value=None)
         mock_db.execute.return_value = mock_cursor
         mock_db.row_factory = None
         mock_context = AsyncMock()
         mock_context.__aenter__ = AsyncMock(return_value=mock_db)
         mock_context.__aexit__ = AsyncMock(return_value=None)
         
-        with patch('PocSocSig_Enhanced.aiosqlite.connect', return_value=mock_context):
+        with patch('src.database.repository.aiosqlite.connect', return_value=mock_context):
             signals = await PocSocSig_Enhanced.load_recent_signals_from_db(limit=10)
             
             assert isinstance(signals, list)
@@ -108,7 +109,7 @@ class TestDatabaseAdvanced:
         mock_context.__aenter__ = AsyncMock(return_value=mock_db)
         mock_context.__aexit__ = AsyncMock(return_value=None)
         
-        with patch('PocSocSig_Enhanced.aiosqlite.connect', return_value=mock_context):
+        with patch('src.database.repository.aiosqlite.connect', return_value=mock_context):
             await PocSocSig_Enhanced.save_stats_to_db()
             
             assert mock_db.execute.called
@@ -124,7 +125,7 @@ class TestDatabaseAdvanced:
         mock_context.__aenter__ = AsyncMock(return_value=mock_db)
         mock_context.__aexit__ = AsyncMock(return_value=None)
         
-        with patch('PocSocSig_Enhanced.aiosqlite.connect', return_value=mock_context):
+        with patch('src.database.repository.aiosqlite.connect', return_value=mock_context):
             await PocSocSig_Enhanced.init_database()
             
             # Should create signals and stats tables

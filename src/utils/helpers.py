@@ -104,7 +104,19 @@ def validate_config_input(text: str) -> bool:
     if not text or not isinstance(text, str):
         return False
     # Pattern: alphanumeric, underscore, equals, dash, space
-    pattern = re.compile(r'^[a-zA-Z0-9_=\s-]+$')
+    pattern = re.compile(r'^[a-zA-Z0-9_/\s=-]+$')
     return bool(pattern.match(text))
+
+
+def format_expiration_text(seconds: int, t: dict) -> str:
+    """
+    Format expiration text with localization support.
+    """
+    if seconds >= 60 and seconds % 60 == 0:
+        minutes = seconds // 60
+        template = t.get('signal_exp_minutes', "{exp} min")
+        return template.format(exp=minutes)
+    template = t.get('signal_exp_seconds', "{exp} sec")
+    return template.format(exp=seconds)
 
 
