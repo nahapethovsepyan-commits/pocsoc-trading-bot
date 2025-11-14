@@ -21,6 +21,7 @@ import signal
 import sys
 from datetime import datetime
 from collections import deque
+import re
 
 # Telegram imports
 from aiogram import Bot, Dispatcher, F
@@ -33,7 +34,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from src.config import CONFIG, get_bot_token, get_api_keys, get_openai_client as _get_openai_client
 from src.models.state import (
     SUBSCRIBED_USERS, STATS, SIGNAL_HISTORY, user_languages,
-    stats_lock, history_lock, config_lock
+    stats_lock, history_lock, config_lock, USER_RATE_LIMITS, user_rate_lock
 )
 from src.database import (
     init_database, save_signal_to_db, load_recent_signals_from_db,
@@ -46,13 +47,13 @@ from src.telegram import TEXTS, get_main_keyboard, language_keyboard
 from src.telegram.decorators import require_subscription, with_error_handling, get_user_locale
 from src.utils.http_session import close_http_session
 from src.utils.helpers import sanitize_user_input, validate_config_input
-from src.utils.audit import log_config_change, log_security_event
+from src.utils.audit import log_config_change, log_security_event, log_admin_action
 from src.signals.utils import (
     check_user_rate_limit,
     cleanup_user_rate_limits,
     is_trading_hours,
 )
-from typing import Tuple, Optional, Any, Union
+from typing import Tuple, Optional, Any, Union, Set
 
 # Backwards compatibility for tests expecting these symbols at module scope
 from src.models.state import METRICS  # re-export shared metrics dictionary
@@ -75,6 +76,21 @@ scheduler = AsyncIOScheduler()
 
 import os
 from logging.handlers import RotatingFileHandler
+
+# Admin configuration
+ADMIN_USER_IDS: Set[int] = set()
+_admin_env = os.getenv("ADMIN_USER_IDS", "").strip()
+if _admin_env:
+    try:
+        ADMIN_USER_IDS = {
+            int(user_id.strip())
+            for user_id in _admin_env.split(",")
+            if user_id.strip()
+        }
+        logging.info(f"✓ Loaded {len(ADMIN_USER_IDS)} admin chat IDs for rate reset command")
+    except ValueError:
+        logging.warning("⚠️  ADMIN_USER_IDS contains invalid values. Falling back to no admin restriction.")
+        ADMIN_USER_IDS = set()
 
 # Настройка логирования с ротацией файлов
 handlers = [logging.StreamHandler()]
@@ -386,11 +402,24 @@ async def settings_handler(message):
     text += "/config min_confidence=45\n"
     text += "/config trading_hours=2-22\n"
     text += "/config trading_hours=off\n"
+    text += "/config gpt_weight=0.30\n"
+    text += "/config gpt_model=gpt-4o\n"
+    text += "/config gpt_wait=2.0\n"
     
     await message.answer(text, parse_mode=None)
 
 # Allowed configuration parameters (whitelist for security)
-ALLOWED_CONFIG_PARAMS = {'min_score', 'min_confidence', 'trading_hours', 'max_signals'}
+ALLOWED_CONFIG_PARAMS = {
+    'min_score',
+    'min_confidence',
+    'trading_hours',
+    'max_signals',
+    'gpt_weight',
+    'gpt_model',
+    'gpt_wait',
+    'gpt_timeout',
+    'gpt_temperature',
+}
 
 
 def validate_config_value(param: str, value: str) -> Tuple[bool, Optional[Union[int, str, Tuple[int, int]]], Optional[str]]:
@@ -423,6 +452,31 @@ def validate_config_value(param: str, value: str) -> Tuple[bool, Optional[Union[
             int,
             'positive integer'
         ),
+        'gpt_weight': (
+            lambda v: 0.0 <= float(v) <= 1.0,
+            float,
+            '0.0-1.0'
+        ),
+        'gpt_temperature': (
+            lambda v: 0.0 <= float(v) <= 2.0,
+            float,
+            '0.0-2.0'
+        ),
+        'gpt_timeout': (
+            lambda v: 0.1 <= float(v) <= 30.0,
+            float,
+            '0.1-30.0 seconds'
+        ),
+        'gpt_wait': (
+            lambda v: 0.1 <= float(v) <= 30.0,
+            float,
+            '0.1-30.0 seconds'
+        ),
+        'gpt_model': (
+            lambda v: True,
+            None,
+            'alphanumeric/dash/underscore/dot (3-64 chars)'
+        ),
         'trading_hours': (
             lambda v: True,  # Special handling below
             None,
@@ -448,6 +502,12 @@ def validate_config_value(param: str, value: str) -> Tuple[bool, Optional[Union[
         except (ValueError, IndexError):
             return False, None, "Invalid format. Use: start-end (e.g., 2-22) or 'off'"
     
+    if param == "gpt_model":
+        cleaned = value.strip()
+        if not re.fullmatch(r"[A-Za-z0-9._-]{3,64}", cleaned):
+            return False, None, "Model name must be 3-64 characters (letters, digits, dot, dash, underscore)"
+        return True, cleaned, None
+
     # Standard validation for other parameters
     validator, parser, allowed_range = validators[param]
     try:
@@ -567,6 +627,34 @@ async def config_handler(message):
             old_value = CONFIG["max_signals_per_hour"]
             CONFIG["max_signals_per_hour"] = parsed_value
             updated = True
+        
+        elif param == "gpt_weight":
+            old_value = CONFIG.get("gpt_weight", 0.35)
+            new_weight = max(0.0, min(1.0, float(parsed_value)))
+            CONFIG["gpt_weight"] = new_weight
+            CONFIG["ta_weight"] = max(0.0, min(1.0, 1.0 - new_weight))
+            parsed_value = new_weight  # normalized float for logging
+            updated = True
+        
+        elif param == "gpt_model":
+            old_value = CONFIG.get("gpt_model", "gpt-4o-mini")
+            CONFIG["gpt_model"] = parsed_value
+            updated = True
+        
+        elif param == "gpt_timeout":
+            old_value = CONFIG.get("gpt_request_timeout", 3.0)
+            CONFIG["gpt_request_timeout"] = parsed_value
+            updated = True
+        
+        elif param == "gpt_wait":
+            old_value = CONFIG.get("gpt_wait_timeout", 2.0)
+            CONFIG["gpt_wait_timeout"] = parsed_value
+            updated = True
+        
+        elif param == "gpt_temperature":
+            old_value = CONFIG.get("gpt_temperature", 0.1)
+            CONFIG["gpt_temperature"] = parsed_value
+            updated = True
     
     if updated:
         # Audit logging for config changes
@@ -574,6 +662,27 @@ async def config_handler(message):
         await message.answer(f"✅ Updated: {param} = {old_value} → {parsed_value}")
     else:
         await message.answer(f"❌ Failed to update parameter: {param}")
+
+
+@dp.message(Command("reset_rate"))
+@require_subscription
+@with_error_handling
+async def reset_rate_handler(message):
+    """Manually clear per-user rate limit cache."""
+    user_id = message.chat.id
+
+    if ADMIN_USER_IDS and user_id not in ADMIN_USER_IDS:
+        await message.answer("❌ Only authorized admins can reset rate limits. Set ADMIN_USER_IDS in .env.")
+        return
+
+    async with user_rate_lock:
+        cleared_users = len(USER_RATE_LIMITS)
+        USER_RATE_LIMITS.clear()
+
+    await cleanup_user_rate_limits()
+    await log_admin_action(user_id, "reset_rate_limits", {"cleared_users": cleared_users})
+
+    await message.answer(f"✅ Rate limits cleared for {cleared_users} users.")
 
 @dp.message(Command("backtest"))
 @require_subscription

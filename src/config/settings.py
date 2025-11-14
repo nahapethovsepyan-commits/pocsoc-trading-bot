@@ -3,9 +3,21 @@ Application configuration settings.
 """
 
 import asyncio
-from datetime import datetime
 from typing import Dict, Any
 from .env import get_openai_client
+
+# Default GPT prompt configuration (can be overridden via CONFIG)
+DEFAULT_GPT_SYSTEM_PROMPT = (
+    "Ты даешь только торговые сигналы. Отвечай одним словом: BUY, SELL или NO_SIGNAL."
+)
+
+DEFAULT_GPT_PROMPT_TEMPLATE = (
+    "Ты трейдер-аналитик. Дай четкий торговый сигнал для {pair} на основе индикаторов:\n"
+    "RSI: {rsi:.1f} ({rsi_state})\n"
+    "MACD: {macd:.5f} ({macd_state})\n"
+    "Цена: {price:.5f}\n\n"
+    "Ответь ТОЛЬКО одним словом: BUY, SELL или NO_SIGNAL"
+)
 
 # Initialize GPT client
 _openai_client, _use_gpt = get_openai_client()
@@ -20,6 +32,13 @@ CONFIG: Dict[str, Any] = {
     "use_gpt": _use_gpt,
     "gpt_weight": 0.35,      # Уменьшен вес GPT
     "ta_weight": 0.65,       # Увеличен вес технического анализа
+    "gpt_model": "gpt-4o-mini",
+    "gpt_temperature": 0.1,
+    "gpt_max_tokens": 10,
+    "gpt_request_timeout": 3.0,
+    "gpt_wait_timeout": 2.0,
+    "gpt_prompt_template": DEFAULT_GPT_PROMPT_TEMPLATE,
+    "gpt_system_prompt": DEFAULT_GPT_SYSTEM_PROMPT,
     "lookback_window": 60,
     "max_signals_per_hour": 12,  # Увеличен лимит сигналов
     "max_sell_score": 40,       # Base SELL threshold (can tighten via adaptive thresholds)

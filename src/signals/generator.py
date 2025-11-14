@@ -8,6 +8,10 @@ import pandas as pd
 from datetime import datetime
 from typing import Dict, Any, Optional
 from ..config import CONFIG, get_openai_client
+from ..config.settings import (
+    DEFAULT_GPT_PROMPT_TEMPLATE,
+    DEFAULT_GPT_SYSTEM_PROMPT,
+)
 from ..api import fetch_forex_data
 from ..indicators import (
     calculate_indicators_parallel,
@@ -80,28 +84,46 @@ async def generate_signal() -> Dict[str, Any]:
         if CONFIG["use_gpt"] and use_gpt and client is not None:
             async def get_gpt_analysis():
                 """Get GPT analysis in background"""
-                prompt = (
-                    f"Ты трейдер-аналитик. Дай четкий торговый сигнал для EUR/USD на основе индикаторов:\n"
-                    f"RSI: {rsi:.1f} ({'перепродан' if rsi < 30 else 'перекуплен' if rsi > 70 else 'нейтральный'})\n"
-                    f"MACD: {macd_diff:.5f} ({'положительный' if macd_diff > 0 else 'отрицательный'})\n"
-                    f"Цена: {current_price:.5f}\n\n"
-                    f"Ответь ТОЛЬКО одним словом: BUY, SELL или NO_SIGNAL"
+                rsi_state = "перепродан" if rsi < CONFIG.get("rsi_strong_oversold", 30) else (
+                    "перекуплен" if rsi > CONFIG.get("rsi_strong_overbought", 70) else "нейтральный"
                 )
+                macd_state = "положительный" if macd_diff > 0 else "отрицательный"
+
+                prompt_template = CONFIG.get("gpt_prompt_template", DEFAULT_GPT_PROMPT_TEMPLATE)
+                prompt_context = {
+                    "pair": CONFIG.get("pair", "EUR/USD"),
+                    "rsi": rsi,
+                    "rsi_state": rsi_state,
+                    "macd": macd_diff,
+                    "macd_state": macd_state,
+                    "price": current_price,
+                }
+                try:
+                    prompt = prompt_template.format(**prompt_context)
+                except Exception as fmt_error:
+                    logging.warning(f"GPT prompt formatting error: {fmt_error}")
+                    prompt = DEFAULT_GPT_PROMPT_TEMPLATE.format(**prompt_context)
+
+                gpt_model = CONFIG.get("gpt_model", "gpt-4o-mini")
+                gpt_temperature = CONFIG.get("gpt_temperature", 0.1)
+                gpt_max_tokens = CONFIG.get("gpt_max_tokens", 10)
+                gpt_request_timeout = CONFIG.get("gpt_request_timeout", 3.0)
+                gpt_system_prompt = CONFIG.get("gpt_system_prompt", DEFAULT_GPT_SYSTEM_PROMPT)
                 try:
                     async with metrics_lock:
                         METRICS["gpt_calls"] += 1
                     
                     resp = await asyncio.wait_for(
                         client.chat.completions.create(
-                            model="gpt-4o-mini",
+                            model=gpt_model,
                             messages=[
-                                {"role": "system", "content": "Ты даешь только торговые сигналы. Отвечай одним словом: BUY, SELL или NO_SIGNAL."},
+                                {"role": "system", "content": gpt_system_prompt},
                                 {"role": "user", "content": prompt},
                             ],
-                            max_tokens=10,
-                            temperature=0.1,
+                            max_tokens=gpt_max_tokens,
+                            temperature=gpt_temperature,
                         ),
-                        timeout=3.0
+                        timeout=gpt_request_timeout
                     )
                     
                     if not resp.choices or len(resp.choices) == 0:
@@ -127,7 +149,7 @@ async def generate_signal() -> Dict[str, Any]:
                 except asyncio.TimeoutError:
                     async with metrics_lock:
                         METRICS["gpt_errors"] += 1
-                    logging.warning("GPT request timeout (3s)")
+                    logging.warning(f"GPT request timeout ({gpt_request_timeout}s)")
                     return (50, "GPT timeout")
                 except Exception as e:
                     async with metrics_lock:
@@ -159,11 +181,12 @@ async def generate_signal() -> Dict[str, Any]:
         reasoning = "GPT analysis disabled."
         
         if gpt_task is not None:
+            gpt_wait_timeout = CONFIG.get("gpt_wait_timeout", 2.0)
             try:
-                gpt_score, reasoning = await asyncio.wait_for(gpt_task, timeout=0.5)
+                gpt_score, reasoning = await asyncio.wait_for(gpt_task, timeout=gpt_wait_timeout)
             except asyncio.TimeoutError:
-                logging.info("GPT still processing, using TA-only score")
-                reasoning = "GPT slow response, using TA only"
+                logging.info(f"GPT still processing after {gpt_wait_timeout:.1f}s, using TA-only score")
+                reasoning = f"GPT slow response (> {gpt_wait_timeout:.1f}s), using TA only"
 
         # Final scoring
         final_score = float(CONFIG["gpt_weight"] * gpt_score + CONFIG["ta_weight"] * ta_score)

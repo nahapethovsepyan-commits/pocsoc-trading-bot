@@ -49,6 +49,7 @@ Before deploying, you need the following API keys:
   TWELVE_DATA_API_KEY=your_twelve_data_api_key_here
   OPENAI_API_KEY=your_openai_api_key_here
   ALPHA_VANTAGE_KEY=your_alpha_vantage_key_here
+  ADMIN_USER_IDS=123456789,987654321  # Optional: who can run /reset_rate
   ```
 - [ ] Verify `.env` file is in `.gitignore` (should not be committed)
 
@@ -103,6 +104,7 @@ Before deploying, you need the following API keys:
   - `TWELVE_DATA_API_KEY`
   - `OPENAI_API_KEY` (optional)
   - `ALPHA_VANTAGE_KEY` (optional)
+  - `ADMIN_USER_IDS` (optional, comma-separated admin chat IDs)
 - [ ] Click "Create Background Worker"
 - [ ] Wait 2-5 minutes for deployment
 - [ ] Check logs for successful startup

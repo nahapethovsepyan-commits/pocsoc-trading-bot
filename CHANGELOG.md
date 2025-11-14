@@ -29,6 +29,8 @@
 - ✅ Документация по настройке SSH (`GITHUB_SSH_SETUP.md`)
 - ✅ Полный анализ кода (`CODE_ANALYSIS_COMPLETE.md`)
 - ✅ Анализ рекомендаций PocketOption (`POCKETOPTION_ANALYSIS.md`)
+- ✅ Настраиваемая GPT-конфигурация (модель, таймауты, температура, шаблон промпта и вес) + команды `/config gpt_*`
+- ✅ Команда `/reset_rate` для ручного сброса лимитов (только для админов из `ADMIN_USER_IDS`)
 
 ### Изменено
 - ✅ Улучшены рекомендации PocketOption: теперь динамические на основе score, confidence и ATR

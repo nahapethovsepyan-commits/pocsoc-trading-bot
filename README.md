@@ -183,6 +183,21 @@ CONFIG = {
 
 **To modify:** Edit `src/config/settings.py` or use `/config` command in Telegram bot.
 
+### GPT analysis tuning
+
+- `gpt_model`: switch between `gpt-4o`, `gpt-4o-mini`, `gpt-3.5-turbo`, etc.
+- `gpt_request_timeout`: how long to wait for the OpenAI API call (seconds).
+- `gpt_wait_timeout`: how long the bot waits for GPT before falling back to TA-only output.
+- `gpt_temperature`: controls randomness (0 = deterministic, 1 = creative).
+- `gpt_weight` / `ta_weight`: adjust hybrid scoring balance (`/config gpt_weight=0.30` in Telegram updates both).
+- `gpt_prompt_template`: multi-line string used to build the user prompt (editable directly in `settings.py`).
+- `gpt_system_prompt`: system instruction for GPT (also editable in `settings.py`).
+
+### Admin tools
+
+- Set `ADMIN_USER_IDS` in `.env` (comma-separated Telegram chat IDs) to restrict who can run maintenance commands.
+- Use `/reset_rate` in Telegram (from an admin chat ID) to flush cached per-user rate limits if someone gets stuck behind a stale limiter or after stress testing.
+
 ### Preset Configurations
 
 **Conservative** (fewer, higher quality):
@@ -254,6 +269,7 @@ python test_apis.py  # Diagnose issues
 
 - Bot automatically switches to backup APIs
 - Check usage at API provider dashboards
+- If rate limiting locks a user, run `/reset_rate` from an admin account to clear cached counters.
 
 ### More help?
 
