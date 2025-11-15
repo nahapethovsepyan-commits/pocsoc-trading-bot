@@ -5,6 +5,7 @@ Database repository for signal storage and retrieval.
 import os
 import shutil
 import logging
+import asyncio
 import aiosqlite
 from datetime import datetime
 from typing import Dict, List, Any, Optional
@@ -33,7 +34,9 @@ async def init_database() -> None:
         Функция безопасна к повторному вызову - использует CREATE TABLE IF NOT EXISTS.
     """
     try:
-        async with aiosqlite.connect(DB_PATH) as db:
+        db = await aiosqlite.connect(DB_PATH)
+        await optimize_db_connection(db)
+        try:
             # Таблица сигналов
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS signals (
@@ -56,9 +59,26 @@ async def init_database() -> None:
                 await db.execute("ALTER TABLE signals ADD COLUMN atr REAL")
                 await db.commit()
                 logging.info("✓ Added ATR column to signals table")
-            except Exception:
-                # Колонка уже существует, это нормально
-                pass
+            except aiosqlite.OperationalError as e:
+                if "duplicate column" in str(e).lower() or "already exists" in str(e).lower():
+                    logging.debug("ATR column already exists (expected)")
+                else:
+                    logging.warning(f"Migration warning while adding ATR column: {e}")
+            except Exception as e:
+                logging.warning(f"Unexpected error during ATR migration: {e}")
+            
+            # Миграция: добавляем колонку symbol если она не существует (для старых БД)
+            try:
+                await db.execute("ALTER TABLE signals ADD COLUMN symbol TEXT DEFAULT 'EURUSD'")
+                await db.commit()
+                logging.info("✓ Added symbol column to signals table")
+            except aiosqlite.OperationalError as e:
+                if "duplicate column" in str(e).lower() or "already exists" in str(e).lower():
+                    logging.debug("Symbol column already exists (expected)")
+                else:
+                    logging.warning(f"Migration warning while adding symbol column: {e}")
+            except Exception as e:
+                logging.warning(f"Unexpected error during symbol migration: {e}")
             
             # Таблица статистики
             await db.execute("""
@@ -89,12 +109,19 @@ async def init_database() -> None:
                 await db.execute("ALTER TABLE subscribers ADD COLUMN expiration_seconds INTEGER")
                 await db.commit()
                 logging.info("✓ Added expiration_seconds column to subscribers table")
-            except Exception:
-                pass
+            except aiosqlite.OperationalError as e:
+                if "duplicate column" in str(e).lower() or "already exists" in str(e).lower():
+                    logging.debug("expiration_seconds column already exists (expected)")
+                else:
+                    logging.warning(f"Migration warning while adding expiration_seconds column: {e}")
+            except Exception as e:
+                logging.warning(f"Unexpected error during expiration_seconds migration: {e}")
             
             await db.commit()
             logging.info("✓ Database initialized")
-
+        finally:
+            await db.close()
+        
         await load_subscribers_into_state()
     except Exception as e:
         logging.error(f"Database initialization error: {e}")
@@ -111,11 +138,13 @@ async def save_signal_to_db(signal_data: Dict[str, Any]) -> None:
         Exception: Логирует ошибку при неудачном сохранении, но не прерывает работу.
     """
     try:
-        async with aiosqlite.connect(DB_PATH) as db:
+        db = await aiosqlite.connect(DB_PATH)
+        await optimize_db_connection(db)
+        try:
             indicators = signal_data.get("indicators", {})
             await db.execute("""
-                INSERT INTO signals (timestamp, signal, price, score, confidence, reasoning, rsi, macd, entry, atr)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO signals (timestamp, signal, price, score, confidence, reasoning, rsi, macd, entry, atr, symbol)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 signal_data["time"].isoformat() if isinstance(signal_data["time"], datetime) else str(signal_data["time"]),
                 signal_data["signal"],
@@ -126,9 +155,12 @@ async def save_signal_to_db(signal_data: Dict[str, Any]) -> None:
                 indicators.get("rsi"),
                 indicators.get("macd"),
                 signal_data.get("entry", signal_data["price"]),
-                signal_data.get("atr")
+                signal_data.get("atr"),
+                signal_data.get("symbol", "EURUSD")
             ))
             await db.commit()
+        finally:
+            await db.close()
     except Exception as e:
         logging.error(f"Error saving signal to database: {e}")
 
@@ -144,7 +176,9 @@ async def load_recent_signals_from_db(limit: int = 100) -> List[Dict[str, Any]]:
         Список словарей с данными сигналов, отсортированных по времени
     """
     try:
-        async with aiosqlite.connect(DB_PATH) as db:
+        db = await aiosqlite.connect(DB_PATH)
+        await optimize_db_connection(db)
+        try:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute("""
                 SELECT * FROM signals 
@@ -176,6 +210,7 @@ async def load_recent_signals_from_db(limit: int = 100) -> List[Dict[str, Any]]:
                         "time": signal_time,
                         "entry": float(row["entry"]) if row["entry"] is not None else float(row["price"]) if row["price"] is not None else 0.0,
                         "atr": float(row["atr"]) if row.get("atr") is not None else None,
+                        "symbol": row.get("symbol") or "EURUSD",  # Add symbol field
                         "indicators": {
                             "rsi": float(row["rsi"]) if row["rsi"] is not None else None,
                             "macd": float(row["macd"]) if row["macd"] is not None else None
@@ -188,6 +223,8 @@ async def load_recent_signals_from_db(limit: int = 100) -> List[Dict[str, Any]]:
             signals.reverse()
             logging.info(f"✓ Loaded {len(signals)} signals from database")
             return signals
+        finally:
+            await db.close()
     except Exception as e:
         logging.error(f"Error loading signals from database: {e}")
         return []
@@ -202,7 +239,9 @@ async def save_stats_to_db() -> None:
     """
     try:
         async with stats_lock:
-            async with aiosqlite.connect(DB_PATH) as db:
+            db = await aiosqlite.connect(DB_PATH)
+            await optimize_db_connection(db)
+            try:
                 await db.execute("""
                     INSERT INTO stats (timestamp, call_count, put_count, ai_signals, total_signals, wins, losses)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -216,6 +255,8 @@ async def save_stats_to_db() -> None:
                     STATS.get("losses", 0)
                 ))
                 await db.commit()
+            finally:
+                await db.close()
     except Exception as e:
         logging.error(f"Error saving stats to database: {e}")
 
@@ -278,7 +319,9 @@ async def add_subscriber_to_db(
     Persist subscriber into database.
     """
     try:
-        async with aiosqlite.connect(DB_PATH) as db:
+        db = await aiosqlite.connect(DB_PATH)
+        await optimize_db_connection(db)
+        try:
             await db.execute("""
                 INSERT INTO subscribers (chat_id, language, expiration_seconds, subscribed_at)
                 VALUES (?, ?, ?, ?)
@@ -293,6 +336,8 @@ async def add_subscriber_to_db(
                 datetime.now().isoformat()
             ))
             await db.commit()
+        finally:
+            await db.close()
     except Exception as e:
         logging.error(f"Error saving subscriber {chat_id} to database: {e}")
 
@@ -302,9 +347,14 @@ async def remove_subscriber_from_db(chat_id: int) -> None:
     Remove subscriber from database.
     """
     try:
-        async with aiosqlite.connect(DB_PATH) as db:
+        db = await aiosqlite.connect(DB_PATH)
+        await optimize_db_connection(db)
+        try:
             await db.execute("DELETE FROM subscribers WHERE chat_id = ?", (chat_id,))
             await db.commit()
+        finally:
+            await db.close()
+        
         user_languages.pop(chat_id, None)
         user_expiration_preferences.pop(chat_id, None)
     except Exception as e:
@@ -316,7 +366,9 @@ async def load_subscribers_into_state() -> None:
     Load subscribers from DB into in-memory state on startup.
     """
     try:
-        async with aiosqlite.connect(DB_PATH) as db:
+        db = await aiosqlite.connect(DB_PATH)
+        await optimize_db_connection(db)
+        try:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute("""
                 SELECT chat_id, language, expiration_seconds
@@ -324,7 +376,9 @@ async def load_subscribers_into_state() -> None:
             """)
             rows = await cursor.fetchall()
             await cursor.close()
-
+        finally:
+            await db.close()
+        
         SUBSCRIBED_USERS.clear()
         SUBSCRIBED_USERS.update({row["chat_id"] for row in rows})
         user_languages.clear()

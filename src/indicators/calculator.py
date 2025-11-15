@@ -10,7 +10,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 from ..config import CONFIG
 from ..utils.helpers import safe_divide
-from ..models.state import INDICATOR_CACHE, indicator_cache_lock
+from ..models.state import INDICATOR_CACHE, INDICATOR_CACHE_MAX_SIZE, indicator_cache_lock
 
 
 def calculate_ta_score(rsi: float, macd_diff: float, bb_position: float, 
@@ -502,7 +502,8 @@ async def calculate_indicators_parallel(df: pd.DataFrame, current_price: float) 
     # Cache the results
     if df_hash is not None:
         async with indicator_cache_lock:
-            if len(INDICATOR_CACHE) >= 5:
+            cache_max = CONFIG.get("indicator_cache_max_size", INDICATOR_CACHE_MAX_SIZE)
+            if len(INDICATOR_CACHE) >= cache_max:
                 INDICATOR_CACHE.popitem(last=False)
             INDICATOR_CACHE[df_hash] = (datetime.now(), indicators)
             INDICATOR_CACHE.move_to_end(df_hash)

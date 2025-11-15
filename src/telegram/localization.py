@@ -73,7 +73,11 @@ TEXTS = {
         'expiration_button_seconds': "{value} сек",
         'expiration_button_minutes': "{value} мин",
         'expiration_not_supported': "⚠️ Такой срок недоступен.",
-        'expiration_no_users': "Нет подписчиков для отправки сигнала."
+        'expiration_no_users': "Нет подписчиков для отправки сигнала.",
+        'select_symbol': 'Выберите актив для торговли:',
+        'switched_to': 'Переключено на',
+        'invalid_symbol': 'Неверный актив.',
+        'current_symbol': 'Текущий актив: {symbol}',
     },
     'en': {
         'choose_language': "Choose language / Выберите язык",
@@ -145,7 +149,11 @@ TEXTS = {
         'expiration_button_seconds': "{value}s",
         'expiration_button_minutes': "{value}m",
         'expiration_not_supported': "⚠️ This expiration is not available.",
-        'expiration_no_users': "No subscribers to send the signal."
+        'expiration_no_users': "No subscribers to send the signal.",
+        'select_symbol': 'Select trading asset:',
+        'switched_to': 'Switched to',
+        'invalid_symbol': 'Invalid asset.',
+        'current_symbol': 'Current asset: {symbol}',
     }
 }
 

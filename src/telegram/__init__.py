@@ -3,7 +3,7 @@ Telegram bot handlers and UI module.
 """
 
 from .localization import TEXTS
-from .keyboards import get_main_keyboard, language_keyboard, get_expiration_keyboard
+from .keyboards import get_main_keyboard, language_keyboard, get_expiration_keyboard, get_symbol_keyboard
 from .decorators import require_subscription, with_error_handling, get_user_locale
 
 __all__ = [
@@ -11,6 +11,7 @@ __all__ = [
     'get_main_keyboard',
     'language_keyboard',
     'get_expiration_keyboard',
+    'get_symbol_keyboard',
     'require_subscription',
     'with_error_handling',
     'get_user_locale',

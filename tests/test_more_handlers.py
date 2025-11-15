@@ -70,9 +70,9 @@ class TestMoreHandlers:
                 
                 # Persistence called
                 mock_remove.assert_called_once_with(12345)
-                
-                # Check message was sent
-                assert mock_message.answer.called
+            
+            # Check message was sent
+            assert mock_message.answer.called
     
     @pytest.mark.asyncio
     async def test_settings_handler(self):

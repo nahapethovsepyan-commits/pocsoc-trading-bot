@@ -37,7 +37,8 @@ http_session: Optional[Any] = None
 
 # Кеш для API ответов (LRU с ограничением размера)
 API_CACHE: OrderedDict = OrderedDict()
-CACHE_MAX_SIZE = 10
+# CACHE_MAX_SIZE is now loaded from CONFIG in repository.py
+CACHE_MAX_SIZE = 10  # Default fallback value
 cache_lock = asyncio.Lock()
 
 # Кеш для последнего ATR (для адаптивного кеширования)
@@ -46,6 +47,8 @@ last_atr_lock = asyncio.Lock()
 
 # Кеш для индикаторов (для избежания повторных вычислений)
 INDICATOR_CACHE: OrderedDict = OrderedDict()
+# INDICATOR_CACHE_MAX_SIZE is now loaded from CONFIG
+INDICATOR_CACHE_MAX_SIZE = 5  # Default fallback value
 indicator_cache_lock = asyncio.Lock()
 
 # Метрики для мониторинга

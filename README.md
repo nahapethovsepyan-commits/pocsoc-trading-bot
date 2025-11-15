@@ -183,6 +183,15 @@ CONFIG = {
 
 **To modify:** Edit `src/config/settings.py` or use `/config` command in Telegram bot.
 
+### Trading Hours
+
+Trading hours are specified in **UTC timezone**:
+- `trading_start_hour`: Start hour in UTC (0-23)
+- `trading_end_hour`: End hour in UTC (0-23)
+- Default: 0-23 (24/7 trading)
+
+**Note:** The bot uses UTC internally. Use `timezone_offset` in CONFIG only for display purposes (local time formatting).
+
 ### GPT analysis tuning
 
 - `gpt_model`: switch between `gpt-4o`, `gpt-4o-mini`, `gpt-3.5-turbo`, etc.

@@ -12,6 +12,7 @@ from ..config.settings import (
     DEFAULT_GPT_PROMPT_TEMPLATE,
     DEFAULT_GPT_SYSTEM_PROMPT,
 )
+from ..utils.symbols import normalize_symbol, symbol_to_pair, get_symbol_config
 from ..api import fetch_forex_data
 from ..indicators import (
     calculate_indicators_parallel,
@@ -26,31 +27,43 @@ from ..models.state import METRICS, metrics_lock
 from .utils import is_trading_hours
 
 
-async def generate_signal() -> Dict[str, Any]:
+async def generate_signal(symbol: str = "EURUSD") -> Dict[str, Any]:
     """
-    Генерация торгового сигнала EUR/USD.
+    Генерация торгового сигнала с поддержкой символов.
+    
+    Args:
+        symbol: Торговый символ (EURUSD, XAUUSD). По умолчанию "EURUSD".
     
     Returns:
         Словарь с данными сигнала
     """
     try:
+        # Normalize symbol
+        normalized_symbol = normalize_symbol(symbol)
+        pair = symbol_to_pair(normalized_symbol)
+        default_price = get_symbol_config(normalized_symbol, "default_price")
+        
+        # Get symbol-specific configuration
+        symbol_config = CONFIG.get("symbol_configs", {}).get(normalized_symbol, {})
+        
         # Check trading hours
         if not is_trading_hours():
             current_hour = datetime.now(timezone.utc).hour
             logging.debug(f"Outside trading hours (current: {current_hour}:00 UTC), skipping analysis")
             return {
                 "signal": "NO_SIGNAL",
-                "price": CONFIG["default_price"],
+                "price": default_price,
                 "score": 50,
                 "confidence": 0,
                 "reasoning": f"Outside trading hours ({CONFIG['trading_start_hour']}:00-{CONFIG['trading_end_hour']}:00 UTC)",
                 "time": datetime.now(),
-                "entry": CONFIG["default_price"],
-                "indicators": {}
+                "entry": default_price,
+                "indicators": {},
+                "symbol": normalized_symbol
             }
         
-        # Get market data
-        df = await fetch_forex_data(CONFIG["pair"])
+        # Get market data (use normalized symbol)
+        df = await fetch_forex_data(normalized_symbol)
         if df is None or df.empty:
             raise ValueError("No market data received")
 
@@ -58,7 +71,7 @@ async def generate_signal() -> Dict[str, Any]:
             current_price = float(df["close"].iloc[-1])
         except (ValueError, IndexError) as e:
             logging.warning(f"Price extraction error: {e}")
-            current_price = CONFIG["default_price"]
+            current_price = default_price
 
         # Calculate indicators in parallel
         indicators = await calculate_indicators_parallel(df, current_price)
@@ -89,9 +102,22 @@ async def generate_signal() -> Dict[str, Any]:
                 )
                 macd_state = "положительный" if macd_diff > 0 else "отрицательный"
 
-                prompt_template = CONFIG.get("gpt_prompt_template", DEFAULT_GPT_PROMPT_TEMPLATE)
+                # Symbol-specific GPT prompt
+                if normalized_symbol == "XAUUSD":
+                    prompt_template = (
+                        "Ты трейдер-аналитик. Анализируй пару XAU/USD (золото). "
+                        "Учитывай корреляцию с DXY (обратная), новости по ФРС, инфляции, геополитике. "
+                        "Уровни: 2700, 2750, 2800. Волатильность выше, чем у EUR/USD.\n"
+                        "RSI: {rsi:.1f} ({rsi_state})\n"
+                        "MACD: {macd:.5f} ({macd_state})\n"
+                        "Цена: {price:.5f}\n\n"
+                        "Ответь ТОЛЬКО одним словом: BUY, SELL или NO_SIGNAL"
+                    )
+                else:
+                    prompt_template = CONFIG.get("gpt_prompt_template", DEFAULT_GPT_PROMPT_TEMPLATE)
+                
                 prompt_context = {
-                    "pair": CONFIG.get("pair", "EUR/USD"),
+                    "pair": pair,
                     "rsi": rsi,
                     "rsi_state": rsi_state,
                     "macd": macd_diff,
@@ -209,10 +235,12 @@ async def generate_signal() -> Dict[str, Any]:
         # Generate signal with adaptive thresholds
         signal = "NO_SIGNAL"
         
+        # Use symbol-specific thresholds
+        base_min_buy = symbol_config.get("min_signal_score", CONFIG.get("min_signal_score", 60))
+        base_max_sell = CONFIG.get("max_sell_score", 40)
+        
         # FIXED: Higher thresholds for binary options (was 55/45, now 65/35)
         thresholds = get_adaptive_thresholds(atr, current_price)
-        base_min_buy = CONFIG.get("min_signal_score", 60)
-        base_max_sell = CONFIG.get("max_sell_score", 40)
         min_buy = max(base_min_buy, thresholds["min_buy_score"])
         max_sell = min(base_max_sell, thresholds["max_sell_score"])
         
@@ -234,7 +262,7 @@ async def generate_signal() -> Dict[str, Any]:
         )
 
         # FIXED: Use final_score with momentum and confidence filters
-        min_confidence = CONFIG.get("min_confidence", 70)  # Default 70% for binary options
+        min_confidence = symbol_config.get("min_confidence", CONFIG.get("min_confidence", 70))  # Use symbol-specific confidence
         momentum_penalty_score = CONFIG.get("momentum_penalty_score", 7)
         momentum_penalty_confidence = CONFIG.get("momentum_penalty_confidence", 5)
         decision_reasons = []
@@ -299,7 +327,10 @@ async def generate_signal() -> Dict[str, Any]:
                 )
         # If in middle range, stay NO_SIGNAL (don't force a signal)
         else:
-            logging.debug(f"⏭️  NO_SIGNAL: final_score={final_score:.1f} in middle range ({max_sell} < score < {min_buy})")
+            logging.debug(
+                "⏭️  NO_SIGNAL: final_score=%.1f in middle range (%.1f < score < %.1f)",
+                final_score, max_sell, min_buy
+            )
             decision_reasons.append(
                 f"Score {final_score:.1f} between thresholds ({max_sell} < score < {min_buy})"
             )
@@ -336,28 +367,37 @@ async def generate_signal() -> Dict[str, Any]:
             "atr": atr,
             "trend": trend_direction,
             "momentum": momentum["direction"],
-            "price_change": round(price_change, 4)
+            "price_change": round(price_change, 4),
+            "symbol": normalized_symbol
         }
 
     except Exception as e:
-        logging.error(f"Signal generation error: {e}")
+        logging.error(f"Signal generation error for {symbol}: {e}")
+        try:
+            normalized_symbol = normalize_symbol(symbol)
+            default_price = get_symbol_config(normalized_symbol, "default_price")
+        except Exception:
+            normalized_symbol = "EURUSD"
+            default_price = CONFIG["default_price"]
         return {
             "signal": "NO_SIGNAL",
-            "price": CONFIG["default_price"],
+            "price": default_price,
             "score": 50,
             "confidence": 0,
             "reasoning": f"Error: {str(e)[:100]}",
             "time": datetime.now(),
-            "entry": CONFIG["default_price"],
-            "indicators": {}
+            "entry": default_price,
+            "indicators": {},
+            "symbol": normalized_symbol
         }
 
 
-async def main_analysis(bot=None, TEXTS=None):
+async def main_analysis(symbol: str = "EURUSD", bot=None, TEXTS=None):
     """
     Основная функция автоматического анализа рынка и генерации сигналов.
     
     Args:
+        symbol: Торговый символ (EURUSD, XAUUSD). По умолчанию "EURUSD".
         bot: Telegram bot instance (required for sending signals)
         TEXTS: Localization dictionary (required for sending signals)
     """
@@ -379,7 +419,7 @@ async def main_analysis(bot=None, TEXTS=None):
             logging.debug(f"Rate limit reached ({CONFIG['max_signals_per_hour']} signals/hour), skipping analysis")
             return
             
-        signal_data = await generate_signal()
+        signal_data = await generate_signal(symbol)
         
         if signal_data["signal"] != "NO_SIGNAL":
             if bot is not None and TEXTS is not None:
@@ -387,11 +427,16 @@ async def main_analysis(bot=None, TEXTS=None):
             async with stats_lock:
                 STATS["signals_per_hour"] += 1
                 STATS["last_signal_time"] = datetime.now()
-            logging.info(f"📤 Signal '{signal_data['signal']}' sent to {len(SUBSCRIBED_USERS)} users")
+            logging.info(f"📤 Signal '{signal_data['signal']}' for {symbol} sent to {len(SUBSCRIBED_USERS)} users")
         else:
-            logging.debug(f"⏭️  NO_SIGNAL generated (score={signal_data.get('score', 0):.1f}, confidence={signal_data.get('confidence', 0):.1f}) - not sending automatically")
+            logging.debug(
+                "⏭️  NO_SIGNAL generated for %s (score=%.1f, confidence=%.1f) - not sending automatically",
+                symbol,
+                signal_data.get('score', 0),
+                signal_data.get('confidence', 0)
+            )
             
     except Exception as e:
-        logging.error(f"Main analysis error: {e}")
+        logging.error(f"Main analysis error for {symbol}: {e}")
 
 

@@ -20,11 +20,13 @@ def get_main_keyboard(lang='ru'):
     buttons = {
         'ru': [
             [KeyboardButton(text="📊 СИГНАЛ"), KeyboardButton(text="📈 СТАТИСТИКА")],
-            [KeyboardButton(text="⚙️ НАСТРОЙКИ"), KeyboardButton(text="📜 ИСТОРИЯ")]
+            [KeyboardButton(text="⚙️ НАСТРОЙКИ"), KeyboardButton(text="📜 ИСТОРИЯ")],
+            [KeyboardButton(text="📈 Активы")]
         ],
         'en': [
             [KeyboardButton(text="📊 SIGNAL"), KeyboardButton(text="📈 STATISTICS")],
-            [KeyboardButton(text="⚙️ SETTINGS"), KeyboardButton(text="📜 HISTORY")]
+            [KeyboardButton(text="⚙️ SETTINGS"), KeyboardButton(text="📜 HISTORY")],
+            [KeyboardButton(text="📈 Symbols")]
         ]
     }
     return ReplyKeyboardMarkup(keyboard=buttons[lang], resize_keyboard=True)
@@ -60,4 +62,24 @@ def get_expiration_keyboard(lang: str = 'ru') -> InlineKeyboardMarkup:
             )
         rows.append(inline_row)
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def get_symbol_keyboard(lang: str = 'ru') -> InlineKeyboardMarkup:
+    """
+    Generate inline keyboard for symbol selection.
+    
+    Args:
+        lang: Language code ('ru' or 'en')
+        
+    Returns:
+        InlineKeyboardMarkup with symbol selection buttons
+    """
+    symbols = CONFIG.get("symbols", ["EURUSD", "XAUUSD"])
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text=symbol, callback_data=f"symbol_{symbol}")
+            for symbol in symbols
+        ]
+    ])
+    return keyboard
 

@@ -24,7 +24,9 @@ _openai_client, _use_gpt = get_openai_client()
 
 # Configuration dictionary
 CONFIG: Dict[str, Any] = {
-    "pair": "EUR/USD",
+    "pair": "EUR/USD",  # Keep for backward compatibility
+    "symbols": ["EURUSD", "XAUUSD"],  # Supported symbols
+    "user_symbols": {},  # Per-user symbol preference {chat_id: "EURUSD"}
     "api_source": "twelvedata",
     "analysis_interval_minutes": 2,
     "min_signal_score": 60,  # Tuned: allow strong setups to pass with relaxed TA filters
@@ -55,10 +57,10 @@ CONFIG: Dict[str, Any] = {
     "history_display_limit": 10,  # Количество сигналов для отображения в /history
     "backtest_min_signals": 10,   # Минимум сигналов для backtesting
     "default_price": 1.0800,     # Fallback цена если API недоступен
-    # Фильтр по времени торговли
+    # Фильтр по времени торговли (все значения в UTC)
     "trading_hours_enabled": True,  # Включить фильтр по времени
-    "trading_start_hour": 0,       # Начало торговли (UTC): 0:00 (круглосуточно)
-    "trading_end_hour": 23,        # Конец торговли (UTC): 23:59 (круглосуточно)
+    "trading_start_hour": 0,       # Начало торговли в UTC: 0:00 (круглосуточно)
+    "trading_end_hour": 23,        # Конец торговли в UTC: 23:59 (круглосуточно)
     # Система алертов
     "alert_api_error_rate": 10.0,  # Порог ошибок API для алерта (%)
     "alert_gpt_error_rate": 20.0,  # Порог ошибок GPT для алерта (%)
@@ -112,6 +114,23 @@ CONFIG: Dict[str, Any] = {
         [60, 120, 180]
     ],
     "expiration_strategy": "atr",       # 'atr' or 'manual'
+    # Cache configuration
+    "cache_max_size": 20,               # Maximum entries in API cache (LRU eviction)
+    "indicator_cache_max_size": 10,     # Maximum entries in indicator cache
+    "indicator_cache_ttl_seconds": 30,  # Time-to-live for indicator cache entries
+    # Symbol-specific configurations
+    "symbol_configs": {
+        "EURUSD": {
+            "min_signal_score": 60,
+            "min_confidence": 65,
+            "atr_multiplier": 1.5,
+        },
+        "XAUUSD": {
+            "min_signal_score": 65,  # Higher threshold for volatile gold
+            "min_confidence": 70,
+            "atr_multiplier": 2.0,  # Larger ATR multiplier for gold
+        },
+    },
 }
 
 # Lock for thread-safe config updates

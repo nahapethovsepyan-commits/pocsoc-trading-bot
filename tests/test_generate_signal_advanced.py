@@ -33,7 +33,7 @@ class TestGenerateSignalAdvanced:
             mock_fetch.return_value = df
             with patch('PocSocSig_Enhanced.is_trading_hours', return_value=True):
                 with patch.dict(PocSocSig_Enhanced.CONFIG, {"use_gpt": False}):
-                    result = await PocSocSig_Enhanced.generate_signal()
+                    result = await PocSocSig_Enhanced.generate_signal("EURUSD")
                     
                     assert result is not None
                     assert "signal" in result
@@ -56,7 +56,7 @@ class TestGenerateSignalAdvanced:
             mock_fetch.return_value = df
             with patch('PocSocSig_Enhanced.is_trading_hours', return_value=True):
                 with patch.dict(PocSocSig_Enhanced.CONFIG, {"use_gpt": False}):
-                    result = await PocSocSig_Enhanced.generate_signal()
+                    result = await PocSocSig_Enhanced.generate_signal("EURUSD")
                     
                     assert result is not None
                     assert "atr" in result
@@ -78,7 +78,7 @@ class TestGenerateSignalAdvanced:
             mock_fetch.return_value = df
             with patch('PocSocSig_Enhanced.is_trading_hours', return_value=True):
                 with patch.dict(PocSocSig_Enhanced.CONFIG, {"use_gpt": False}):
-                    result = await PocSocSig_Enhanced.generate_signal()
+                    result = await PocSocSig_Enhanced.generate_signal("EURUSD")
                     
                     assert result is not None
                     assert "indicators" in result
@@ -104,7 +104,7 @@ class TestGenerateSignalAdvanced:
             mock_fetch.return_value = df_buy
             with patch('PocSocSig_Enhanced.is_trading_hours', return_value=True):
                 with patch.dict(PocSocSig_Enhanced.CONFIG, {"use_gpt": False}):
-                    result = await PocSocSig_Enhanced.generate_signal()
+                    result = await PocSocSig_Enhanced.generate_signal("EURUSD")
                     
                     assert result is not None
                     assert 0 <= result["score"] <= 100
@@ -128,7 +128,7 @@ class TestGenerateSignalAdvanced:
             mock_fetch.return_value = df
             with patch('PocSocSig_Enhanced.is_trading_hours', return_value=True):
                 with patch.dict(PocSocSig_Enhanced.CONFIG, {"use_gpt": False}):
-                    result = await PocSocSig_Enhanced.generate_signal()
+                    result = await PocSocSig_Enhanced.generate_signal("EURUSD")
                     
                     assert result is not None
                     # Should be NO_SIGNAL or very weak signal

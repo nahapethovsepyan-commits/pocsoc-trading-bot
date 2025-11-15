@@ -49,7 +49,8 @@ class TestSendSignalMessage:
                 "stoch_k": 20.0,
                 "stoch_d": 18.0
             },
-            "atr": 0.0003
+            "atr": 0.0003,
+            "symbol": "EURUSD"
         }
         
         # Mock bot
@@ -103,7 +104,8 @@ class TestSendSignalMessage:
                 "stoch_k": 80.0,
                 "stoch_d": 82.0
             },
-            "atr": 0.0004
+            "atr": 0.0004,
+            "symbol": "EURUSD"
         }
         
         # Mock bot
@@ -135,7 +137,8 @@ class TestSendSignalMessage:
             "reasoning": "Test",
             "time": datetime.now(),
             "indicators": {},
-            "atr": 0.0003
+            "atr": 0.0003,
+            "symbol": "EURUSD"
         }
         
         # Mock bot
@@ -175,7 +178,8 @@ class TestSendSignalMessage:
             "reasoning": "No clear signal",
             "time": datetime.now(),
             "indicators": {},
-            "atr": None
+            "atr": None,
+            "symbol": "EURUSD"
         }
         
         mock_bot = MagicMock()
@@ -215,7 +219,8 @@ class TestSendSignalMessage:
             "reasoning": "Strong signal",
             "time": datetime.now(),
             "indicators": {},
-            "atr": 0.0005  # Medium volatility
+            "atr": 0.0005,  # Medium volatility
+            "symbol": "EURUSD"
         }
         
         # Mock bot
@@ -256,7 +261,8 @@ class TestSendSignalMessage:
             "reasoning": "Extreme volatility test",
             "time": datetime.now(),
             "indicators": {},
-            "atr": 0.005  # ~0.46% ATR -> should map to 10 seconds
+            "atr": 0.005,  # ~0.46% ATR -> should map to 10 seconds
+            "symbol": "EURUSD"
         }
 
         mock_bot = MagicMock()

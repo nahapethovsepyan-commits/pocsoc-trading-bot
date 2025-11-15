@@ -10,16 +10,28 @@ from .localization import TEXTS
 
 
 def require_subscription(func):
-    """Decorator to check user subscription before handler execution."""
+    """Decorator to check user subscription before handler execution.
+    
+    Works with both message handlers and callback query handlers.
+    """
     @wraps(func)
-    async def wrapper(message):
-        chat_id = message.chat.id
+    async def wrapper(event):
+        # Handle both Message and CallbackQuery objects
+        if hasattr(event, 'message') and event.message:
+            # CallbackQuery object
+            chat_id = event.message.chat.id
+            message_obj = event.message
+        else:
+            # Message object
+            chat_id = event.chat.id
+            message_obj = event
+        
         if chat_id not in SUBSCRIBED_USERS:
             lang = user_languages.get(chat_id, 'ru')
             t = TEXTS.get(lang, TEXTS['ru'])
-            await message.answer(t.get('not_subscribed', '⚠️ Please send /start first to subscribe to signals'))
+            await message_obj.answer(t.get('not_subscribed', '⚠️ Please send /start first to subscribe to signals'))
             return
-        return await func(message)
+        return await func(event)
     return wrapper
 
 
@@ -38,16 +50,23 @@ def with_error_handling(func):
     return wrapper
 
 
-def get_user_locale(message):
+def get_user_locale(event):
     """Get user's language and localized texts.
     
     Args:
-        message: Telegram message object
+        event: Telegram message or callback object
         
     Returns:
         tuple: (language_code, texts_dict)
     """
-    chat_id = message.chat.id
+    # Handle both Message and CallbackQuery objects
+    if hasattr(event, 'message') and event.message:
+        # CallbackQuery object
+        chat_id = event.message.chat.id
+    else:
+        # Message object
+        chat_id = event.chat.id
+    
     lang = user_languages.get(chat_id, 'ru')
     return lang, TEXTS.get(lang, TEXTS['ru'])
 

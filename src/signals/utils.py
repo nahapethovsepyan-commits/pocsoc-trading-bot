@@ -25,6 +25,9 @@ def is_trading_hours():
     """
     Проверка, рабочее ли время для торговли.
     
+    Uses UTC timezone. trading_start_hour and trading_end_hour 
+    in CONFIG must be specified in UTC.
+    
     Returns:
         True если торговля разрешена, False если вне торговых часов.
     """

@@ -72,7 +72,7 @@ async def send_signal_to_user(
         
         score = signal_data.get("score", 50)
         confidence = signal_data.get("confidence", 60)
-        
+            
         # Expiration based on ATR with configurable thresholds + user overrides
         allowed_seconds = sorted(
             {max(1, int(value)) for value in CONFIG.get("expiration_button_seconds", [5, 10, 30, 60, 120, 180])}

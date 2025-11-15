@@ -10,11 +10,11 @@ from datetime import datetime
 from typing import Optional, Tuple
 from ..utils.http_session import get_http_session
 from ..utils.helpers import is_successful_status
+from ..utils.symbols import normalize_symbol, symbol_to_pair
 from ..config import CONFIG, get_api_keys
 from ..models.state import API_CACHE, CACHE_MAX_SIZE, cache_lock, METRICS, metrics_lock
 from .twelvedata import fetch_from_twelvedata
 from .alphavantage import fetch_from_alphavantage
-from .binance import fetch_from_binance
 
 
 async def fetch_forex_data_parallel(pair: str = "EUR/USD") -> Tuple[Optional[pd.DataFrame], Optional[str]]:
@@ -39,7 +39,10 @@ async def fetch_forex_data_parallel(pair: str = "EUR/USD") -> Tuple[Optional[pd.
         tasks.append(("Twelve Data", fetch_from_twelvedata(pair, session)))
     if ALPHA_VANTAGE_KEY:
         tasks.append(("Alpha Vantage", fetch_from_alphavantage(pair, session)))
-    tasks.append(("Binance", fetch_from_binance(pair, session)))
+    
+    if not tasks:
+        logging.error("No API keys configured. Please set TWELVE_DATA_API_KEY or ALPHA_VANTAGE_KEY in .env")
+        return None, None
     
     # Race all APIs - return first successful response
     for coro in asyncio.as_completed([task[1] for task in tasks]):
@@ -55,33 +58,40 @@ async def fetch_forex_data_parallel(pair: str = "EUR/USD") -> Tuple[Optional[pd.
     return None, None
 
 
-async def fetch_forex_data(pair: str = "EUR/USD", max_retries: int = 3) -> Optional[pd.DataFrame]:
+async def fetch_forex_data(symbol: str = "EURUSD", max_retries: int = 3) -> Optional[pd.DataFrame]:
     """
-    Получение котировок EUR/USD из доступных источников с retry логикой и кешированием.
+    Получение котировок с поддержкой символов (EURUSD, XAUUSD) из доступных источников с retry логикой и кешированием.
     
     Args:
-        pair: Торговая пара. По умолчанию "EUR/USD".
+        symbol: Торговый символ (EURUSD, XAUUSD). По умолчанию "EURUSD".
         max_retries: Максимальное количество попыток при ошибке.
         
     Returns:
         DataFrame с колонками ['time', 'open', 'high', 'low', 'close', 'volume']
         или None если все источники недоступны.
     """
+    # Normalize symbol
+    try:
+        normalized_symbol = normalize_symbol(symbol)
+        pair = symbol_to_pair(normalized_symbol)
+    except ValueError as e:
+        logging.error(f"Invalid symbol: {symbol} - {e}")
+        return None
+    
     # Import here to avoid circular dependency
     from ..indicators import get_adaptive_cache_duration
     
     start_time = datetime.now()
     TWELVE_DATA_KEY, ALPHA_VANTAGE_KEY = get_api_keys()
     
-    # Check cache with adaptive duration
-    cache_key = f"forex_data:{pair}"
+    # Check cache with adaptive duration (use normalized symbol in cache key)
+    cache_key = f"forex_data:{normalized_symbol}"
     async with cache_lock:
         lookup_key = cache_key
         if lookup_key not in API_CACHE:
             legacy_keys = [
                 f"{pair}_twelvedata",
                 f"{pair}_alphavantage",
-                f"{pair}_binance",
             ]
             for legacy_key in legacy_keys:
                 if legacy_key in API_CACHE:
@@ -115,7 +125,7 @@ async def fetch_forex_data(pair: str = "EUR/USD", max_retries: int = 3) -> Optio
                 adaptive_duration = CONFIG["cache_duration_seconds"]
             
             if cached_data is not None and age < adaptive_duration:
-                logging.debug(f"Using cached data for {pair} (age: {age:.1f}s, max: {adaptive_duration}s)")
+                logging.debug(f"Using cached data for {normalized_symbol} (age: {age:.1f}s, max: {adaptive_duration}s)")
                 async with metrics_lock:
                     METRICS["api_cache_hits"] += 1
                 return cached_data.copy()
@@ -160,11 +170,8 @@ async def fetch_forex_data(pair: str = "EUR/USD", max_retries: int = 3) -> Optio
                         "interval": "1min",
                         "apikey": ALPHA_VANTAGE_KEY
                     }
-
-                # Binance
                 else:
-                    url = "https://api.binance.com/api/v3/klines"
-                    params = {"symbol": "EURUSDT", "interval": "1m", "limit": CONFIG["lookback_window"]}
+                    raise ValueError(f"No valid API source configured. Please set TWELVE_DATA_API_KEY or ALPHA_VANTAGE_KEY in .env")
 
                 async with session.get(url, params=params, timeout=10) as resp:
                     if not is_successful_status(resp.status):
@@ -199,15 +206,6 @@ async def fetch_forex_data(pair: str = "EUR/USD", max_retries: int = 3) -> Optio
                             raise ValueError(f"Alpha Vantage API error: {data['Error Message']}")
                         elif "Note" in data:
                             raise ValueError(f"Alpha Vantage API note: {data['Note']}")
-                    elif isinstance(data, list):  # Binance
-                        if not data:
-                            raise ValueError("Binance returned empty data")
-                        df = pd.DataFrame(data, columns=[
-                            "time", "open", "high", "low", "close", "volume",
-                            "close_time", "quote_volume", "trades", "taker_buy_base",
-                            "taker_buy_quote", "ignore"
-                        ])
-                        df = df[["time", "open", "high", "low", "close"]].astype(float)
                     else:
                         raise ValueError(f"Unsupported API response format: {type(data)}")
 
@@ -238,7 +236,8 @@ async def fetch_forex_data(pair: str = "EUR/USD", max_retries: int = 3) -> Optio
             
             # Save to cache
             async with cache_lock:
-                if len(API_CACHE) >= CACHE_MAX_SIZE:
+                cache_max = CONFIG.get("cache_max_size", CACHE_MAX_SIZE)
+                if len(API_CACHE) >= cache_max:
                     API_CACHE.popitem(last=False)
                 
                 API_CACHE[cache_key] = (datetime.now(), result_df.copy(deep=False), temp_atr, temp_price)

@@ -35,9 +35,9 @@ class TestTelegramHandlers:
                 
                 # DB persistence called
                 mock_add.assert_called_once()
-                
-                # Check message was sent
-                mock_message.answer.assert_called_once()
+            
+            # Check message was sent
+            mock_message.answer.assert_called_once()
     
     @pytest.mark.asyncio
     async def test_language_handler(self):

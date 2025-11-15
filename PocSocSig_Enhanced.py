@@ -2,7 +2,7 @@
 Enhanced EUR/USD Trading Signal Bot with GPT Analysis
 =====================================================
 Features:
-- Multiple forex API sources (Twelve Data, Alpha Vantage, fallback to Binance)
+- Multiple forex API sources (Twelve Data, Alpha Vantage)
 - GPT-4o-mini AI analysis (replaces LSTM)
 - Advanced technical indicators (BB, ADX, Stochastic, ATR, RSI, MACD)
 - Hybrid scoring system: GPT (10%) + Technical Analysis (90%)
@@ -54,7 +54,7 @@ from src.monitoring import (
     check_system_health as monitor_check_system_health,
     send_alert as monitor_send_alert
 )
-from src.telegram import TEXTS, get_main_keyboard, language_keyboard, get_expiration_keyboard
+from src.telegram import TEXTS, get_main_keyboard, language_keyboard, get_expiration_keyboard, get_symbol_keyboard
 from src.telegram.decorators import require_subscription, with_error_handling, get_user_locale
 from src.utils.http_session import close_http_session, get_http_session, http_session
 from src.utils.helpers import sanitize_user_input, validate_config_input
@@ -159,8 +159,8 @@ scheduler = AsyncIOScheduler()
 
 # ==================== LOGGING SETUP ====================
 
-import os
 from logging.handlers import RotatingFileHandler
+import os  # Required for os.getenv() and os.makedirs()
 
 # Admin configuration
 ADMIN_USER_IDS: Set[int] = set()
@@ -210,7 +210,7 @@ logging.basicConfig(
 
 # Проверка API ключей (после настройки логирования)
 if not TWELVE_DATA_KEY and not ALPHA_VANTAGE_KEY:
-    logging.warning("⚠️ No forex API keys found - using Binance fallback (may differ from real forex)")
+    logging.warning("⚠️ No forex API keys found - please set TWELVE_DATA_API_KEY or ALPHA_VANTAGE_KEY in .env")
 
 # Import helper functions from modules
 from src.utils.helpers import safe_divide, is_successful_status, format_time, sanitize_user_input
@@ -245,6 +245,7 @@ async def start_handler(message):
     SUBSCRIBED_USERS.add(chat_id)
     default_lang = user_languages.get(chat_id, 'ru')
     user_languages[chat_id] = default_lang
+    CONFIG["user_symbols"][chat_id] = "EURUSD"  # Default symbol
     logging.info(f"User {chat_id} subscribed to signals")
 
     try:
@@ -354,6 +355,7 @@ async def stop_handler(message):
         except Exception as e:
             logging.error(f"Failed to remove subscriber {chat_id} from database: {e}")
         user_expiration_preferences.pop(chat_id, None)
+        CONFIG["user_symbols"].pop(chat_id, None)
         await message.answer(t['unsubscribed'])
         logging.info(f"User {chat_id} unsubscribed from signals")
     else:
@@ -363,14 +365,17 @@ async def _run_manual_signal(chat_id: int, lang: str, t: dict) -> None:
     """
     Trigger manual signal generation after user chooses expiration.
     """
+    symbol = CONFIG["user_symbols"].get(chat_id, "EURUSD")
     try:
         if not await check_rate_limit():
             await bot.send_message(chat_id, t['rate_limit'])
             return
-
+        
         analyzing_msg = await bot.send_message(chat_id, t['analyzing'])
-
-        signal_data = await asyncio.wait_for(generate_signal(), timeout=10.0)
+        
+        signal_data = await asyncio.wait_for(generate_signal(symbol), timeout=30.0)
+        if "symbol" not in signal_data:
+            raise ValueError("Signal data does not include 'symbol'")
         if signal_data["signal"] == "NO_SIGNAL":
             no_signal_text = f"❌ {t['signal_why_no']}\n"
             no_signal_text += f"📊 {t['signal_score'].format(score=signal_data['score'])}\n"
@@ -419,7 +424,7 @@ async def manual_signal_handler(message):
 async def expiration_select_handler(callback):
     """Handle expiration selection from inline buttons."""
     chat_id = callback.message.chat.id
-    lang, t = get_user_locale(callback.message)
+    lang, t = get_user_locale(callback)
 
     try:
         _, raw_value = callback.data.split(":")
@@ -460,6 +465,56 @@ async def expiration_select_handler(callback):
 
     await _run_manual_signal(chat_id, lang, t)
 
+@dp.message(Command("symbol"))
+@require_subscription
+@with_error_handling
+async def symbol_handler(message):
+    """Handler for /symbol command: show inline keyboard for symbol selection."""
+    lang, t = get_user_locale(message)
+    keyboard = get_symbol_keyboard(lang)
+    await message.answer(t['select_symbol'], reply_markup=keyboard)
+
+@dp.message(F.text.in_({"📈 Активы", "📈 Symbols"}))
+@require_subscription
+@with_error_handling
+async def assets_handler(message):
+    """Handler for assets/symbols button - shows symbol selection."""
+    await symbol_handler(message)
+
+@dp.callback_query(F.data.startswith("symbol_"))
+@require_subscription
+async def symbol_select_handler(callback):
+    """Handle symbol selection from inline buttons."""
+    chat_id = callback.message.chat.id
+    lang, t = get_user_locale(callback.message)
+    
+    try:
+        symbol = callback.data.split("_")[1]
+    except IndexError:
+        await callback.answer(t['invalid_symbol'], show_alert=True)
+        return
+    
+    # Validate symbol
+    if symbol not in CONFIG.get("symbols", ["EURUSD", "XAUUSD"]):
+        await callback.answer(t['invalid_symbol'], show_alert=True)
+        return
+    
+    # Save user's symbol preference
+    CONFIG["user_symbols"][chat_id] = symbol
+    
+    # Send confirmation
+    confirmation = f"✅ {t['switched_to']} {symbol}"
+    await callback.answer(confirmation, show_alert=False)
+    
+    # Remove inline keyboard
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    
+    # Show current symbol
+    await callback.message.answer(t['current_symbol'].format(symbol=symbol))
+
 @dp.message(F.text.in_({"📈 СТАТИСТИКА", "📈 STATISTICS"}))
 @require_subscription
 @with_error_handling
@@ -486,7 +541,7 @@ async def stats_handler(message):
     elif ALPHA_VANTAGE_KEY:
         api_source = "Alpha Vantage ✓"
     else:
-        api_source = "Binance (fallback)"
+        api_source = "No API configured"
     
     text = t['stats_title']
     text += t['stats_total'].format(total=total)
@@ -517,6 +572,7 @@ async def settings_handler(message):
     text += t['settings_max_signals'].format(max=CONFIG['max_signals_per_hour'])
     text += f"\n⏰ Trading Hours: {CONFIG['trading_start_hour']}:00-{CONFIG['trading_end_hour']}:00 UTC\n"
     text += f"📊 Trading Hours Filter: {'✅ Enabled' if CONFIG['trading_hours_enabled'] else '❌ Disabled'}\n"
+    text += f"📈 Symbols: {', '.join(CONFIG['symbols'])}\n"
     text += "\n💡 To change settings, use:\n"
     text += "/config min_score=55\n"
     text += "/config min_confidence=45\n"
@@ -876,7 +932,8 @@ async def history_handler(message):
     
     for sig in history_copy:
         time_str = format_time(sig['time'], '%H:%M')
-        text += f"{sig['signal']} @ {sig['entry']:.5f} ({time_str})\n"
+        symbol = sig.get('symbol', 'EURUSD')
+        text += f"{symbol} {sig['signal']} @ {sig['entry']:.5f} ({time_str})\n"
     
     await message.answer(text, parse_mode=None)
 
@@ -899,13 +956,14 @@ async def export_handler(message):
     writer = csv.writer(output)
     
     # Заголовки
-    writer.writerow(['timestamp', 'signal', 'price', 'score', 'confidence', 'rsi', 'macd', 'bb_position', 'adx', 'atr'])
+    writer.writerow(['timestamp', 'symbol', 'signal', 'price', 'score', 'confidence', 'rsi', 'macd', 'bb_position', 'adx', 'atr'])
     
     # Данные
     for sig in signals:
         indicators = sig.get('indicators', {})
         writer.writerow([
             sig['time'].isoformat() if isinstance(sig['time'], datetime) else str(sig['time']),
+            sig.get('symbol', 'EURUSD'),  # Add symbol
             sig['signal'],
             sig['price'],
             sig['score'],
@@ -958,7 +1016,7 @@ async def health_handler(message):
     )
     hours = int(uptime_seconds // 3600)
     minutes = int((uptime_seconds % 3600) // 60)
-    
+            
     total_api = metrics_snapshot["api_calls"] + metrics_snapshot["api_errors"]
     api_error_rate = (
         safe_divide(metrics_snapshot["api_errors"], total_api, 0.0) * 100
@@ -1055,7 +1113,8 @@ async def main():
 
     # Настройка scheduler и запуск первой аналитики
     async def main_analysis_with_deps():
-        await main_analysis(bot=bot, TEXTS=TEXTS)
+        for symbol in CONFIG["symbols"]:
+            await main_analysis(symbol=symbol, bot=bot, TEXTS=TEXTS)
 
     async def check_health_with_deps():
         await check_system_health(bot=bot)

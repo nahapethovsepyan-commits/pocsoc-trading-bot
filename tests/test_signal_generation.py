@@ -26,7 +26,7 @@ class TestSignalGeneration:
             "default_price": 1.0800
         }):
             with patch('src.signals.generator.is_trading_hours', return_value=False):
-                result = await PocSocSig_Enhanced.generate_signal()
+                result = await PocSocSig_Enhanced.generate_signal("EURUSD")
                 
                 assert result["signal"] == "NO_SIGNAL"
                 assert result["price"] == 1.0800
@@ -47,7 +47,7 @@ class TestSignalGeneration:
             mock_fetch.return_value = df
             with patch('src.signals.generator.is_trading_hours', return_value=True):
                 with patch.dict(PocSocSig_Enhanced.CONFIG, {"use_gpt": False}):
-                    result = await PocSocSig_Enhanced.generate_signal()
+                    result = await PocSocSig_Enhanced.generate_signal("EURUSD")
                     
                     assert result is not None
                     assert "signal" in result
@@ -72,7 +72,7 @@ class TestSignalGeneration:
             mock_fetch.return_value = df
             with patch('src.signals.generator.is_trading_hours', return_value=True):
                 with patch.dict(PocSocSig_Enhanced.CONFIG, {"use_gpt": False}):
-                    result = await PocSocSig_Enhanced.generate_signal()
+                    result = await PocSocSig_Enhanced.generate_signal("EURUSD")
                     
                     assert result is not None
                     assert "signal" in result
@@ -87,7 +87,7 @@ class TestSignalGeneration:
         with patch('src.signals.generator.fetch_forex_data', new_callable=AsyncMock) as mock_fetch:
             mock_fetch.return_value = None
             with patch('src.signals.generator.is_trading_hours', return_value=True):
-                result = await PocSocSig_Enhanced.generate_signal()
+                result = await PocSocSig_Enhanced.generate_signal("EURUSD")
                 assert result["signal"] in {"NO_SIGNAL", "BUY", "SELL"}
                 assert result["reasoning"]  # reasoning should describe fallback
     
@@ -99,7 +99,7 @@ class TestSignalGeneration:
         with patch('src.signals.generator.fetch_forex_data', new_callable=AsyncMock) as mock_fetch:
             mock_fetch.return_value = empty_df
             with patch('src.signals.generator.is_trading_hours', return_value=True):
-                result = await PocSocSig_Enhanced.generate_signal()
+                result = await PocSocSig_Enhanced.generate_signal("EURUSD")
                 assert result["signal"] in {"NO_SIGNAL", "BUY", "SELL"}
                 assert result["reasoning"]
     
@@ -113,8 +113,8 @@ class TestSignalGeneration:
                     with patch('src.config.get_openai_client', return_value=(mock_gpt_client, True)):
                         with patch('src.signals.generator.get_openai_client', return_value=(mock_gpt_client, True)):
                             with patch('PocSocSig_Enhanced.get_openai_client', return_value=(mock_gpt_client, True)):
-                                result = await PocSocSig_Enhanced.generate_signal()
-
+                                result = await PocSocSig_Enhanced.generate_signal("EURUSD")
+                                
                                 assert result is not None
                                 assert "signal" in result
                                 assert "score" in result
@@ -130,7 +130,7 @@ class TestSignalGeneration:
             mock_fetch.return_value = df
             with patch('src.signals.generator.is_trading_hours', return_value=True):
                 with patch.dict(PocSocSig_Enhanced.CONFIG, {"use_gpt": False}):
-                    result = await PocSocSig_Enhanced.generate_signal()
+                    result = await PocSocSig_Enhanced.generate_signal("EURUSD")
                     
                     assert 0 <= result["score"] <= 100
     
@@ -143,7 +143,7 @@ class TestSignalGeneration:
             mock_fetch.return_value = df
             with patch('src.signals.generator.is_trading_hours', return_value=True):
                 with patch.dict(PocSocSig_Enhanced.CONFIG, {"use_gpt": False}):
-                    result = await PocSocSig_Enhanced.generate_signal()
+                    result = await PocSocSig_Enhanced.generate_signal("EURUSD")
                     
                     if result["signal"] in ["BUY", "SELL"]:
                         assert 60.0 <= result["confidence"] <= 90.0

@@ -33,7 +33,7 @@ class TestEdgeCases:
         with patch('src.signals.generator.fetch_forex_data', new_callable=AsyncMock) as mock_fetch:
             mock_fetch.return_value = empty_df
             with patch('PocSocSig_Enhanced.is_trading_hours', return_value=True):
-                result = await PocSocSig_Enhanced.generate_signal()
+                result = await PocSocSig_Enhanced.generate_signal("EURUSD")
                 
                 # Should return NO_SIGNAL with error
                 assert result["signal"] == "NO_SIGNAL"
@@ -45,7 +45,7 @@ class TestEdgeCases:
         with patch('src.signals.generator.fetch_forex_data', new_callable=AsyncMock) as mock_fetch:
             mock_fetch.return_value = None
             with patch('PocSocSig_Enhanced.is_trading_hours', return_value=True):
-                result = await PocSocSig_Enhanced.generate_signal()
+                result = await PocSocSig_Enhanced.generate_signal("EURUSD")
                 
                 # Should return NO_SIGNAL with error
                 assert result["signal"] == "NO_SIGNAL"
@@ -146,7 +146,7 @@ class TestEdgeCases:
         PocSocSig_Enhanced.SUBSCRIBED_USERS.clear()
         
         # Should return early without error
-        await PocSocSig_Enhanced.main_analysis()
+        await PocSocSig_Enhanced.main_analysis("EURUSD")
         # Should complete without error
     
     @pytest.mark.asyncio
