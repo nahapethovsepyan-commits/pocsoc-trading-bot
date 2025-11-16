@@ -20,6 +20,28 @@ from ..models.state import (
 DB_PATH = "signals.db"
 
 
+async def optimize_db_connection(db: aiosqlite.Connection) -> None:
+    """
+    Optimize SQLite connection settings for better performance.
+    
+    Sets pragmas for:
+    - WAL mode: Better concurrency for reads
+    - NORMAL synchronous: Good balance of safety and performance
+    - Increased cache size: Better performance for frequent queries
+    
+    Args:
+        db: Database connection to optimize
+    """
+    try:
+        await db.execute("PRAGMA journal_mode=WAL")
+        await db.execute("PRAGMA synchronous=NORMAL")
+        await db.execute("PRAGMA cache_size=10000")
+        await db.execute("PRAGMA foreign_keys=ON")
+        await db.commit()
+    except Exception as e:
+        logging.warning(f"Could not optimize database connection: {e}")
+
+
 async def init_database() -> None:
     """
     Инициализация базы данных SQLite.

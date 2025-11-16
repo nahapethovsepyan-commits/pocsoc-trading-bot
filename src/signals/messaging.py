@@ -160,8 +160,17 @@ async def send_signal_to_user(
             risk_level = t['risk_high']
             risk_emoji = "🔴"
         
+        # Get symbol from signal_data and convert to pair format for display
+        from ..utils.symbols import symbol_to_pair, normalize_symbol
+        signal_symbol = signal_data.get('symbol', 'EURUSD')
+        try:
+            normalized_symbol = normalize_symbol(signal_symbol)
+            pair_display = symbol_to_pair(normalized_symbol)
+        except (ValueError, KeyError):
+            pair_display = signal_symbol  # Fallback to raw symbol
+        
         text = f"🚨 {t['signal_alert']}\n\n"
-        text += f"{t['signal_pair']}\n"
+        text += f"Пара: {pair_display}\n" if user_lang == 'ru' else f"Pair: {pair_display}\n"
         text += f"{t['signal_action'].format(action=signal_data['signal'])}\n"
         text += f"{t['signal_price'].format(price=current_price)}\n"
         text += f"{t['signal_score'].format(score=signal_data['score'])}\n"

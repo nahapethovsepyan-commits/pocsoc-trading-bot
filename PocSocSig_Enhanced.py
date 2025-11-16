@@ -365,7 +365,21 @@ async def _run_manual_signal(chat_id: int, lang: str, t: dict) -> None:
     """
     Trigger manual signal generation after user chooses expiration.
     """
-    symbol = CONFIG["user_symbols"].get(chat_id, "EURUSD")
+    from src.utils.symbols import normalize_symbol
+    
+    # Get and normalize symbol to ensure consistency
+    raw_symbol = CONFIG["user_symbols"].get(chat_id, "EURUSD")
+    logging.info(f"Generating signal for user {chat_id}: raw_symbol={raw_symbol}, stored symbols={CONFIG['user_symbols'].get(chat_id)}")
+    try:
+        symbol = normalize_symbol(raw_symbol)
+        logging.info(f"Normalized symbol for user {chat_id}: {symbol}")
+    except ValueError:
+        # Fallback to EURUSD if symbol is invalid
+        symbol = "EURUSD"
+        CONFIG["user_symbols"][chat_id] = symbol
+        logging.warning(f"Invalid symbol '{raw_symbol}' for user {chat_id}, defaulting to EURUSD")
+    
+    analyzing_msg = None
     try:
         if not await check_rate_limit():
             await bot.send_message(chat_id, t['rate_limit'])
@@ -402,12 +416,14 @@ async def _run_manual_signal(chat_id: int, lang: str, t: dict) -> None:
     except asyncio.TimeoutError:
         await bot.send_message(chat_id, t['timeout'])
     except Exception as e:
+        logging.error(f"Error in _run_manual_signal for user {chat_id}: {e}", exc_info=True)
         await bot.send_message(chat_id, t['error'].format(error=str(e)[:100]))
     finally:
-        try:
-            await analyzing_msg.delete()
-        except Exception:
-            pass
+        if analyzing_msg:
+            try:
+                await analyzing_msg.delete()
+            except Exception:
+                pass
 
 
 @dp.message(F.text.in_({"📊 СИГНАЛ", "📊 SIGNAL"}))
@@ -463,7 +479,21 @@ async def expiration_select_handler(callback):
     except Exception:
         pass
 
-    await _run_manual_signal(chat_id, lang, t)
+    # Wrap _run_manual_signal in try-except to handle errors and provide user feedback
+    try:
+        await _run_manual_signal(chat_id, lang, t)
+    except Exception as e:
+        logging.error(f"Error in expiration_select_handler after selecting expiration: {e}", exc_info=True)
+        # Send error message to user
+        try:
+            await bot.send_message(chat_id, t['error'].format(error=str(e)[:100]))
+        except Exception as send_error:
+            logging.error(f"Failed to send error message to user {chat_id}: {send_error}")
+            # Fallback: try to answer callback with error
+            try:
+                await callback.answer(t.get('error', '❌ Error occurred').format(error=str(e)[:50]), show_alert=True)
+            except Exception:
+                pass
 
 @dp.message(Command("symbol"))
 @require_subscription
@@ -485,25 +515,35 @@ async def assets_handler(message):
 @require_subscription
 async def symbol_select_handler(callback):
     """Handle symbol selection from inline buttons."""
+    from src.utils.symbols import normalize_symbol, symbol_to_pair
+    
     chat_id = callback.message.chat.id
     lang, t = get_user_locale(callback.message)
     
     try:
-        symbol = callback.data.split("_")[1]
-    except IndexError:
+        raw_symbol = callback.data.split("_")[1]
+        # Normalize symbol before saving (EURUSD, XAUUSD)
+        symbol = normalize_symbol(raw_symbol)
+    except (IndexError, ValueError) as e:
+        logging.error(f"Invalid symbol in callback: {callback.data}, error: {e}")
         await callback.answer(t['invalid_symbol'], show_alert=True)
         return
     
-    # Validate symbol
+    # Validate symbol (use normalized)
     if symbol not in CONFIG.get("symbols", ["EURUSD", "XAUUSD"]):
         await callback.answer(t['invalid_symbol'], show_alert=True)
         return
     
-    # Save user's symbol preference
+    # Save user's symbol preference (normalized)
     CONFIG["user_symbols"][chat_id] = symbol
+    logging.info(f"User {chat_id} selected symbol: {symbol} (normalized from {raw_symbol})")
     
-    # Send confirmation
-    confirmation = f"✅ {t['switched_to']} {symbol}"
+    # Send confirmation with pair format for display (EUR/USD, XAU/USD)
+    try:
+        pair = symbol_to_pair(symbol)
+        confirmation = f"✅ {t['switched_to']} {pair}"
+    except ValueError:
+        confirmation = f"✅ {t['switched_to']} {symbol}"
     await callback.answer(confirmation, show_alert=False)
     
     # Remove inline keyboard
@@ -512,8 +552,13 @@ async def symbol_select_handler(callback):
     except Exception:
         pass
     
-    # Show current symbol
-    await callback.message.answer(t['current_symbol'].format(symbol=symbol))
+    # Automatically show expiration menu after symbol selection
+    keyboard = get_expiration_keyboard(lang)
+    pair = symbol_to_pair(symbol)
+    await callback.message.answer(
+        f"{t['current_symbol'].format(symbol=pair)}\n\n{t['select_expiration']}", 
+        reply_markup=keyboard
+    )
 
 @dp.message(F.text.in_({"📈 СТАТИСТИКА", "📈 STATISTICS"}))
 @require_subscription
