@@ -323,6 +323,9 @@ async def generate_signal(symbol: str = "EURUSD") -> Dict[str, Any]:
                     ta_weight = ta_weight / total_weight
                     candle_weight = candle_weight / total_weight
                 combined_confidence = (confidence * ta_weight) + (ct_confidence * candle_weight)
+            else:
+                # Если комбинирование отключено, используем минимум
+                combined_confidence = min(confidence, ct_confidence)
             
             # Логика принятия решения
             if ct_decision == "NO_TRADE" or ct_confidence < candlestutor_min_conf:
@@ -342,7 +345,7 @@ async def generate_signal(symbol: str = "EURUSD") -> Dict[str, Any]:
             else:
                 # GPT подтверждает - используем комбинированный confidence
                 final_decision = candidate_signal
-                confidence = combined_confidence if combine_conf else min(confidence, ct_confidence)
+                confidence = combined_confidence  # Всегда используем combined_confidence
                 logging.info(
                     f"✅ CandlesTutor подтверждает {candidate_signal}: pattern={ct_pattern}, "
                     f"combined_confidence={combined_confidence:.1f}"
