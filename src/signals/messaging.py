@@ -211,10 +211,9 @@ async def send_signal_to_user(
             text += "\n"
         
         # Отображение комбинированной уверенности
-        if signal_data.get("combined_confidence"):
+        if candlestutor and signal_data.get("combined_confidence") is not None:
             combined_conf = signal_data.get("combined_confidence")
-            if candlestutor and combined_conf != signal_data.get("confidence", 0):
-                text += f"🎯 Комбинированная уверенность: {combined_conf:.1f}\n\n"
+            text += f"🎯 Комбинированная уверенность: {combined_conf:.1f}\n\n"
         
         text += f"\n⏰ {format_time(get_local_time())}"
         
