@@ -25,6 +25,7 @@ from ..indicators import (
 )
 from ..models.state import METRICS, metrics_lock
 from .utils import is_trading_hours
+from .candles_tutor import call_candlestutor, format_candles_for_tutor
 
 
 async def generate_signal(symbol: str = "EURUSD") -> Dict[str, Any]:
@@ -232,9 +233,6 @@ async def generate_signal(symbol: str = "EURUSD") -> Dict[str, Any]:
         
         confidence = calculate_confidence(rsi, macd_diff, bb_position, adx, stoch_k, preliminary_signal)
         
-        # Generate signal with adaptive thresholds
-        signal = "NO_SIGNAL"
-        
         # Use symbol-specific thresholds
         base_min_buy = symbol_config.get("min_signal_score", CONFIG.get("min_signal_score", 60))
         base_max_sell = CONFIG.get("max_sell_score", 40)
@@ -244,104 +242,236 @@ async def generate_signal(symbol: str = "EURUSD") -> Dict[str, Any]:
         min_buy = max(base_min_buy, thresholds["min_buy_score"])
         max_sell = min(base_max_sell, thresholds["max_sell_score"])
         
-        logging.info(
-            "Trend: %s | Momentum: %s (%.4f%%) | TA score: %.1f | GPT score: %.1f",
-            trend_direction,
-            momentum["direction"],
-            price_change,
-            ta_score,
-            gpt_score,
-        )
-        logging.info(
-            "Adaptive thresholds (%s volatility): BUY>=%s, SELL<=%s | Final score: %.1f | Confidence: %.1f",
-            thresholds["label"],
-            min_buy,
-            max_sell,
-            final_score,
-            confidence,
-        )
-
-        # FIXED: Use final_score with momentum and confidence filters
-        min_confidence = symbol_config.get("min_confidence", CONFIG.get("min_confidence", 70))  # Use symbol-specific confidence
-        momentum_penalty_score = CONFIG.get("momentum_penalty_score", 7)
-        momentum_penalty_confidence = CONFIG.get("momentum_penalty_confidence", 5)
-        decision_reasons = []
-        adjusted_score = final_score
-        adjusted_confidence = confidence
+        # ЭТАП 1: Определение кандидата на сигнал для CandlesTutor
+        candidate_signal = "NO_SIGNAL"
+        if ta_score >= min_buy:
+            candidate_signal = "BUY"
+        elif ta_score <= max_sell:
+            candidate_signal = "SELL"
         
-        if final_score >= min_buy:
-            if momentum["direction"] not in ("UP", "NEUTRAL"):
-                logging.info(
-                    "⚠️ BUY momentum mismatch (%s) - applying penalties score:%s conf:%s",
-                    momentum["direction"],
-                    momentum_penalty_score,
-                    momentum_penalty_confidence,
+        # ЭТАП 2: Условный вызов CandlesTutor (только если есть кандидат)
+        candlestutor_result = None
+        candlestutor_enabled = CONFIG.get("candlestutor_enabled", True)
+        
+        if (candlestutor_enabled and 
+            candidate_signal != "NO_SIGNAL" and
+            confidence >= CONFIG.get("min_confidence", 65)):
+            
+            # Проверяем минимальный отступ от порога
+            min_score_gap = CONFIG.get("candlestutor_min_score_gap", 3)
+            should_call = False
+            
+            if candidate_signal == "BUY" and ta_score >= (min_buy + min_score_gap):
+                should_call = True
+            elif candidate_signal == "SELL" and ta_score <= (max_sell - min_score_gap):
+                should_call = True
+            
+            if should_call:
+                # Форматируем свечи
+                candles_list = format_candles_for_tutor(df, num_candles=15)
+                
+                # Формируем индикаторы для отправки
+                indicators_dict = {
+                    "rsi": rsi,
+                    "macd": macd_diff,
+                    "bb_position": bb_position,
+                    "adx": adx,
+                    "stoch_k": stoch_k,
+                    "stoch_d": stoch_d,
+                }
+                
+                # Вызываем CandlesTutor
+                candlestutor_result = await call_candlestutor(
+                    symbol=normalized_symbol,
+                    timeframe="1min",
+                    candles=candles_list,
+                    indicators=indicators_dict,
+                    candidate_signal=candidate_signal,
+                    ta_score=ta_score,
+                    ta_confidence=confidence
                 )
-                adjusted_score -= momentum_penalty_score
-                adjusted_confidence -= momentum_penalty_confidence
-                decision_reasons.append(
-                    f"BUY penalty applied due to momentum {momentum['direction']}"
+                
+                if candlestutor_result:
+                    logging.info(
+                        f"CandlesTutor: decision={candlestutor_result.get('decision')}, "
+                        f"pattern={candlestutor_result.get('pattern')}, "
+                        f"confidence={candlestutor_result.get('confidence')}"
+                    )
+                else:
+                    logging.debug("CandlesTutor не ответил (лимит/ошибка), используем только TA")
+        
+        # ЭТАП 3: Комбинирование TA и CandlesTutor решений
+        final_decision = candidate_signal
+        combined_confidence = confidence
+        
+        if candlestutor_result:
+            ct_decision = candlestutor_result.get("decision", "NO_TRADE")
+            ct_confidence = candlestutor_result.get("confidence", 0)
+            ct_pattern = candlestutor_result.get("pattern", "нет")
+            
+            # Правило комбинирования
+            candlestutor_min_conf = CONFIG.get("candlestutor_min_confidence", 60)
+            combine_conf = CONFIG.get("candlestutor_combine_confidence", True)
+            
+            if combine_conf:
+                # Взвешенное комбинирование confidence
+                ta_weight = CONFIG.get("candlestutor_ta_weight", 0.7)
+                candle_weight = CONFIG.get("candlestutor_candle_weight", 0.3)
+                # Нормализуем веса на случай если сумма != 1.0
+                total_weight = ta_weight + candle_weight
+                if total_weight > 0:
+                    ta_weight = ta_weight / total_weight
+                    candle_weight = candle_weight / total_weight
+                combined_confidence = (confidence * ta_weight) + (ct_confidence * candle_weight)
+            
+            # Логика принятия решения
+            if ct_decision == "NO_TRADE" or ct_confidence < candlestutor_min_conf:
+                # GPT блокирует или не уверен - пропускаем сигнал
+                final_decision = "NO_SIGNAL"
+                logging.warning(
+                    f"⚠️ CandlesTutor блокирует сигнал: decision={ct_decision}, "
+                    f"confidence={ct_confidence} < {candlestutor_min_conf}"
                 )
-            if adjusted_confidence >= min_confidence and adjusted_score >= min_buy:
-                signal = "BUY"
-                logging.info(
-                    "✅ BUY signal: adjusted_score=%.1f >= %s, adjusted_confidence=%.1f, momentum=%s",
-                    adjusted_score,
-                    min_buy,
-                    adjusted_confidence,
-                    momentum["direction"],
+            elif ct_decision != candidate_signal:
+                # GPT против направления - пропускаем (контрверсивный кейс)
+                final_decision = "NO_SIGNAL"
+                logging.warning(
+                    f"⚠️ CandlesTutor против направления: TA={candidate_signal}, "
+                    f"CandlesTutor={ct_decision}, пропускаем"
                 )
-                decision_reasons.append("BUY: passed thresholds")
             else:
-                decision_reasons.append(
-                    f"Rejected BUY: adjusted score {adjusted_score:.1f} / confidence {adjusted_confidence:.1f}"
+                # GPT подтверждает - используем комбинированный confidence
+                final_decision = candidate_signal
+                confidence = combined_confidence if combine_conf else min(confidence, ct_confidence)
+                logging.info(
+                    f"✅ CandlesTutor подтверждает {candidate_signal}: pattern={ct_pattern}, "
+                    f"combined_confidence={combined_confidence:.1f}"
                 )
-        elif final_score <= max_sell:
+        else:
+            # CandlesTutor не ответил - используем только TA
+            logging.debug("CandlesTutor не вызван или вернул None, используем только TA")
+        
+        # Generate signal: используем решение CandlesTutor если оно есть, иначе старую логику
+        signal = final_decision
+        
+        # Если CandlesTutor не был вызван или вернул None, используем старую логику с momentum фильтрами
+        if not candlestutor_result:
+            logging.info(
+                "Trend: %s | Momentum: %s (%.4f%%) | TA score: %.1f | GPT score: %.1f",
+                trend_direction,
+                momentum["direction"],
+                price_change,
+                ta_score,
+                gpt_score,
+            )
+            logging.info(
+                "Adaptive thresholds (%s volatility): BUY>=%s, SELL<=%s | Final score: %.1f | Confidence: %.1f",
+                thresholds["label"],
+                min_buy,
+                max_sell,
+                final_score,
+                confidence,
+            )
+
+            # FIXED: Use final_score with momentum and confidence filters (только если CandlesTutor не вызван)
+            min_confidence = symbol_config.get("min_confidence", CONFIG.get("min_confidence", 70))
+            momentum_penalty_score = CONFIG.get("momentum_penalty_score", 7)
+            momentum_penalty_confidence = CONFIG.get("momentum_penalty_confidence", 5)
+            decision_reasons = []
             adjusted_score = final_score
             adjusted_confidence = confidence
-            if momentum["direction"] not in ("DOWN", "NEUTRAL"):
-                logging.info(
-                    "⚠️ SELL momentum mismatch (%s) - applying penalties score:%s conf:%s",
-                    momentum["direction"],
-                    momentum_penalty_score,
-                    momentum_penalty_confidence,
-                )
-                adjusted_score += momentum_penalty_score  # score is bearish, so add penalty to move toward 50
-                adjusted_confidence -= momentum_penalty_confidence
-                decision_reasons.append(
-                    f"SELL penalty applied due to momentum {momentum['direction']}"
-                )
-            if adjusted_confidence >= min_confidence and adjusted_score <= max_sell:
-                signal = "SELL"
-                logging.info(
-                    "✅ SELL signal: adjusted_score=%.1f <= %s, adjusted_confidence=%.1f, momentum=%s",
-                    adjusted_score,
-                    max_sell,
-                    adjusted_confidence,
-                    momentum["direction"],
-                )
-                decision_reasons.append("SELL: passed thresholds")
+            
+            if final_score >= min_buy:
+                if momentum["direction"] not in ("UP", "NEUTRAL"):
+                    logging.info(
+                        "⚠️ BUY momentum mismatch (%s) - applying penalties score:%s conf:%s",
+                        momentum["direction"],
+                        momentum_penalty_score,
+                        momentum_penalty_confidence,
+                    )
+                    adjusted_score -= momentum_penalty_score
+                    adjusted_confidence -= momentum_penalty_confidence
+                    decision_reasons.append(
+                        f"BUY penalty applied due to momentum {momentum['direction']}"
+                    )
+                if adjusted_confidence >= min_confidence and adjusted_score >= min_buy:
+                    signal = "BUY"
+                    logging.info(
+                        "✅ BUY signal: adjusted_score=%.1f >= %s, adjusted_confidence=%.1f, momentum=%s",
+                        adjusted_score,
+                        min_buy,
+                        adjusted_confidence,
+                        momentum["direction"],
+                    )
+                    decision_reasons.append("BUY: passed thresholds")
+                else:
+                    signal = "NO_SIGNAL"
+                    decision_reasons.append(
+                        f"Rejected BUY: adjusted score {adjusted_score:.1f} / confidence {adjusted_confidence:.1f}"
+                    )
+            elif final_score <= max_sell:
+                adjusted_score = final_score
+                adjusted_confidence = confidence
+                if momentum["direction"] not in ("DOWN", "NEUTRAL"):
+                    logging.info(
+                        "⚠️ SELL momentum mismatch (%s) - applying penalties score:%s conf:%s",
+                        momentum["direction"],
+                        momentum_penalty_score,
+                        momentum_penalty_confidence,
+                    )
+                    adjusted_score += momentum_penalty_score
+                    adjusted_confidence -= momentum_penalty_confidence
+                    decision_reasons.append(
+                        f"SELL penalty applied due to momentum {momentum['direction']}"
+                    )
+                if adjusted_confidence >= min_confidence and adjusted_score <= max_sell:
+                    signal = "SELL"
+                    logging.info(
+                        "✅ SELL signal: adjusted_score=%.1f <= %s, adjusted_confidence=%.1f, momentum=%s",
+                        adjusted_score,
+                        max_sell,
+                        adjusted_confidence,
+                        momentum["direction"],
+                    )
+                    decision_reasons.append("SELL: passed thresholds")
+                else:
+                    signal = "NO_SIGNAL"
+                    decision_reasons.append(
+                        f"Rejected SELL: adjusted score {adjusted_score:.1f} / confidence {adjusted_confidence:.1f}"
+                    )
             else:
-                decision_reasons.append(
-                    f"Rejected SELL: adjusted score {adjusted_score:.1f} / confidence {adjusted_confidence:.1f}"
+                signal = "NO_SIGNAL"
+                logging.debug(
+                    "⏭️  NO_SIGNAL: final_score=%.1f in middle range (%.1f < score < %.1f)",
+                    final_score, max_sell, min_buy
                 )
-        # If in middle range, stay NO_SIGNAL (don't force a signal)
+                decision_reasons.append(
+                    f"Score {final_score:.1f} between thresholds ({max_sell} < score < {min_buy})"
+                )
+            logging.info(
+                "Decision summary -> signal: %s | score: %.1f | confidence: %.1f | momentum: %s | reasons: %s",
+                signal,
+                final_score,
+                confidence,
+                momentum["direction"],
+                "; ".join(decision_reasons) or "n/a",
+            )
         else:
-            logging.debug(
-                "⏭️  NO_SIGNAL: final_score=%.1f in middle range (%.1f < score < %.1f)",
-                final_score, max_sell, min_buy
+            # CandlesTutor был вызван, используем его решение
+            logging.info(
+                "Trend: %s | Momentum: %s (%.4f%%) | TA score: %.1f | GPT score: %.1f | CandlesTutor: %s",
+                trend_direction,
+                momentum["direction"],
+                price_change,
+                ta_score,
+                gpt_score,
+                signal,
             )
-            decision_reasons.append(
-                f"Score {final_score:.1f} between thresholds ({max_sell} < score < {min_buy})"
+            logging.info(
+                "Final decision from CandlesTutor: %s | Combined confidence: %.1f",
+                signal,
+                combined_confidence,
             )
-        logging.info(
-            "Decision summary -> signal: %s | score: %.1f | confidence: %.1f | momentum: %s | reasons: %s",
-            signal,
-            final_score,
-            confidence,
-            momentum["direction"],
-            "; ".join(decision_reasons) or "n/a",
-        )
         
         # Update metrics
         async with metrics_lock:
@@ -368,7 +498,9 @@ async def generate_signal(symbol: str = "EURUSD") -> Dict[str, Any]:
             "trend": trend_direction,
             "momentum": momentum["direction"],
             "price_change": round(price_change, 4),
-            "symbol": normalized_symbol
+            "symbol": normalized_symbol,
+            "candlestutor": candlestutor_result if candlestutor_result else None,
+            "combined_confidence": round(combined_confidence, 1) if candlestutor_result else round(confidence, 1),
         }
 
     except Exception as e:

@@ -200,6 +200,22 @@ async def send_signal_to_user(
         if safe_reasoning and safe_reasoning != "GPT analysis disabled.":
             text += f"📊 {t['signal_analysis']}\n🤖 GPT: {safe_reasoning}\n"
         
+        # Отображение CandlesTutor результата (свечные паттерны)
+        candlestutor = signal_data.get("candlestutor")
+        if candlestutor and candlestutor.get("pattern") and candlestutor.get("pattern") != "нет":
+            pattern = candlestutor.get("pattern", "")
+            ct_comment = candlestutor.get("comment", "")
+            text += f"🕯️ Свечной паттерн: {pattern}\n"
+            if ct_comment:
+                text += f"💡 {ct_comment}\n"
+            text += "\n"
+        
+        # Отображение комбинированной уверенности
+        if signal_data.get("combined_confidence"):
+            combined_conf = signal_data.get("combined_confidence")
+            if candlestutor and combined_conf != signal_data.get("confidence", 0):
+                text += f"🎯 Комбинированная уверенность: {combined_conf:.1f}\n\n"
+        
         text += f"\n⏰ {format_time(get_local_time())}"
         
         await bot.send_message(chat_id, text, parse_mode=None)

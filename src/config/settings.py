@@ -19,6 +19,26 @@ DEFAULT_GPT_PROMPT_TEMPLATE = (
     "Ответь ТОЛЬКО одним словом: BUY, SELL или NO_SIGNAL"
 )
 
+# Default CandlesTutor system prompt
+DEFAULT_CANDLESTUTOR_SYSTEM_PROMPT = (
+    "Ты специалист по анализу японских свечей (CandlesTutor). "
+    "Твоя задача - анализировать свечные паттерны на основе знаний из прикрепленной книги по японским свечам.\n\n"
+    "Когда вход представляет собой JSON вида "
+    "{\"symbol\": \"...\", \"timeframe\": \"...\", \"last_candles\": [...], "
+    "\"indicators\": {...}, \"candidate_signal\": \"...\", \"ta_score\": ...}, "
+    "используй знания из прикрепленной книги по японским свечам.\n"
+    "- Определи, есть ли четкие свечные паттерны (например, молот, падающая звезда, поглощение, звезда и т.п.).\n"
+    "- Оцени, подтверждают ли они направление candidate_signal.\n"
+    "- Всегда отвечай СТРОГО в JSON следующего формата без текста вокруг:\n"
+    "{\"decision\":\"BUY|SELL|NO_TRADE\",\"pattern\":\"название паттерна или 'нет'\","
+    "\"confidence\":0-100,\"comment\":\"краткое объяснение\"}.\n\n"
+    "decision: BUY если свечной анализ согласен с candidate_signal, SELL если видит противоположный сценарий, "
+    "NO_TRADE если нет четкого паттерна или лучше пропустить.\n"
+    "pattern: название опознанного паттерна (молот, повешенный, поглощение, звезда и т.п.) или 'нет'.\n"
+    "confidence: уверенность свечного анализа от 0 до 100.\n"
+    "comment: короткое человеческое объяснение (например, 'Молот после даунтренда, подтверждение следующей свечой, поддерживает BUY')."
+)
+
 # Initialize GPT client
 _openai_client, _use_gpt = get_openai_client()
 
@@ -131,6 +151,15 @@ CONFIG: Dict[str, Any] = {
             "atr_multiplier": 2.0,  # Larger ATR multiplier for gold
         },
     },
+    # CandlesTutor configuration
+    "candlestutor_enabled": True,  # Включить интеграцию CandlesTutor
+    "candlestutor_min_score_gap": 3,  # Минимальный отступ ta_score от порога для вызова GPT
+    "candlestutor_min_confidence": 60,  # Минимальный confidence от CandlesTutor для подтверждения
+    "candlestutor_cooldown_minutes": 2,  # Cooldown между запросами для одного символа
+    "candlestutor_system_prompt": DEFAULT_CANDLESTUTOR_SYSTEM_PROMPT,
+    "candlestutor_combine_confidence": True,  # Комбинировать TA confidence + свечной confidence
+    "candlestutor_ta_weight": 0.7,  # Вес TA confidence при комбинировании
+    "candlestutor_candle_weight": 0.3,  # Вес свечного confidence (должно быть 1.0 в сумме с ta_weight)
 }
 
 # Lock for thread-safe config updates

@@ -5,6 +5,7 @@ Signal generation and management module.
 from .generator import generate_signal, main_analysis
 from .messaging import send_signal_message, send_signal_to_user
 from .utils import get_local_time, is_trading_hours, check_rate_limit, clean_markdown
+from .candles_tutor import call_candlestutor, format_candles_for_tutor
 
 __all__ = [
     'generate_signal',
@@ -15,4 +16,6 @@ __all__ = [
     'is_trading_hours',
     'check_rate_limit',
     'clean_markdown',
+    'call_candlestutor',
+    'format_candles_for_tutor',
 ]
