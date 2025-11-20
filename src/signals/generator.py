@@ -253,9 +253,30 @@ async def generate_signal(symbol: str = "EURUSD") -> Dict[str, Any]:
         candlestutor_result = None
         candlestutor_enabled = CONFIG.get("candlestutor_enabled", True)
         
+        logging.debug(
+            f"CandlesTutor check: enabled={candlestutor_enabled}, "
+            f"candidate={candidate_signal}, confidence={confidence:.1f} "
+            f"(min_ta_conf={CONFIG.get('candlestutor_min_ta_confidence', 55)}), "
+            f"ta_score={ta_score:.1f}, min_buy={min_buy:.1f}, max_sell={max_sell:.1f}"
+        )
+        
+        # Логирование причин, почему CandlesTutor не вызывается
+        if not candlestutor_enabled:
+            logging.debug("CandlesTutor отключен в конфиге")
+        elif candidate_signal == "NO_SIGNAL":
+            logging.debug(
+                f"CandlesTutor не вызывается: нет кандидата (ta_score={ta_score:.1f} не проходит пороги "
+                f"min_buy={min_buy:.1f} или max_sell={max_sell:.1f})"
+            )
+        elif confidence < CONFIG.get("candlestutor_min_ta_confidence", 55):
+            min_ta_conf = CONFIG.get("candlestutor_min_ta_confidence", 55)
+            logging.debug(
+                f"CandlesTutor не вызывается: confidence {confidence:.1f} < {min_ta_conf} (min_ta_conf)"
+            )
+        
         if (candlestutor_enabled and 
             candidate_signal != "NO_SIGNAL" and
-            confidence >= CONFIG.get("min_confidence", 65)):
+            confidence >= CONFIG.get("candlestutor_min_ta_confidence", 55)):  # Отдельный порог для CandlesTutor
             
             # Проверяем минимальный отступ от порога
             min_score_gap = CONFIG.get("candlestutor_min_score_gap", 3)
@@ -266,30 +287,44 @@ async def generate_signal(symbol: str = "EURUSD") -> Dict[str, Any]:
             elif candidate_signal == "SELL" and ta_score <= (max_sell - min_score_gap):
                 should_call = True
             
+            if not should_call:
+                logging.debug(
+                    f"CandlesTutor не вызывается: candidate={candidate_signal}, "
+                    f"ta_score={ta_score:.1f}, требуется для BUY: >= {min_buy + min_score_gap:.1f}, "
+                    f"для SELL: <= {max_sell - min_score_gap:.1f}"
+                )
+            
             if should_call:
                 # Форматируем свечи
                 candles_list = format_candles_for_tutor(df, num_candles=15)
                 
-                # Формируем индикаторы для отправки
-                indicators_dict = {
-                    "rsi": rsi,
-                    "macd": macd_diff,
-                    "bb_position": bb_position,
-                    "adx": adx,
-                    "stoch_k": stoch_k,
-                    "stoch_d": stoch_d,
-                }
-                
-                # Вызываем CandlesTutor
-                candlestutor_result = await call_candlestutor(
-                    symbol=normalized_symbol,
-                    timeframe="1min",
-                    candles=candles_list,
-                    indicators=indicators_dict,
-                    candidate_signal=candidate_signal,
-                    ta_score=ta_score,
-                    ta_confidence=confidence
-                )
+                # Проверка на пустой список свечей
+                if not candles_list:
+                    logging.warning(
+                        f"CandlesTutor: empty candles list for {normalized_symbol}, skipping call"
+                    )
+                    candlestutor_result = None
+                else:
+                    # Формируем индикаторы для отправки
+                    indicators_dict = {
+                        "rsi": rsi,
+                        "macd": macd_diff,
+                        "bb_position": bb_position,
+                        "adx": adx,
+                        "stoch_k": stoch_k,
+                        "stoch_d": stoch_d,
+                    }
+                    
+                    # Вызываем CandlesTutor
+                    candlestutor_result = await call_candlestutor(
+                        symbol=normalized_symbol,
+                        timeframe="1min",
+                        candles=candles_list,
+                        indicators=indicators_dict,
+                        candidate_signal=candidate_signal,
+                        ta_score=ta_score,
+                        ta_confidence=confidence
+                    )
                 
                 if candlestutor_result:
                     logging.info(
@@ -331,6 +366,7 @@ async def generate_signal(symbol: str = "EURUSD") -> Dict[str, Any]:
             if ct_decision == "NO_TRADE" or ct_confidence < candlestutor_min_conf:
                 # GPT блокирует или не уверен - пропускаем сигнал
                 final_decision = "NO_SIGNAL"
+                confidence = combined_confidence  # Обновляем для согласованности
                 logging.warning(
                     f"⚠️ CandlesTutor блокирует сигнал: decision={ct_decision}, "
                     f"confidence={ct_confidence} < {candlestutor_min_conf}"
@@ -338,6 +374,7 @@ async def generate_signal(symbol: str = "EURUSD") -> Dict[str, Any]:
             elif ct_decision != candidate_signal:
                 # GPT против направления - пропускаем (контрверсивный кейс)
                 final_decision = "NO_SIGNAL"
+                confidence = combined_confidence  # Обновляем для согласованности
                 logging.warning(
                     f"⚠️ CandlesTutor против направления: TA={candidate_signal}, "
                     f"CandlesTutor={ct_decision}, пропускаем"

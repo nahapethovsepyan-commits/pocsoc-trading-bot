@@ -155,6 +155,41 @@ async def call_candlestutor(
         logging.debug("CandlesTutor disabled in config")
         return None
     
+    # Нормализуем символ сразу, чтобы использовать в логах и проверках
+    normalized_symbol = symbol.upper()
+    
+    # Валидация входных параметров
+    if candidate_signal not in ("BUY", "SELL"):
+        logging.warning(
+            f"CandlesTutor: invalid candidate_signal '{candidate_signal}', expected BUY or SELL"
+        )
+        return None
+    
+    if not candles or len(candles) == 0:
+        logging.warning(
+            f"CandlesTutor: empty candles list for {normalized_symbol}, skipping call"
+        )
+        return None
+    
+    if not (0 <= ta_score <= 100):
+        logging.warning(
+            f"CandlesTutor: ta_score {ta_score} out of range [0-100], skipping call"
+        )
+        return None
+    
+    if not (0 <= ta_confidence <= 100):
+        logging.warning(
+            f"CandlesTutor: ta_confidence {ta_confidence} out of range [0-100], skipping call"
+        )
+        return None
+    
+    # Логируем попытку вызова сразу после нормализации (до всех проверок)
+    logging.info(
+        f"CandlesTutor attempt: symbol={normalized_symbol}, "
+        f"candidate={candidate_signal}, ta_score={ta_score:.1f}, "
+        f"ta_confidence={ta_confidence:.1f}"
+    )
+    
     # Проверка лимитов (внутри функции, чтобы генератор не думал об этом)
     if not await check_candlestutor_rate_limit():
         logging.warning("CandlesTutor rate limit exceeded, skipping")
@@ -162,7 +197,6 @@ async def call_candlestutor(
             METRICS["candlestutor_errors"] = METRICS.get("candlestutor_errors", 0) + 1
         return None
     
-    normalized_symbol = symbol.upper()
     cooldown_minutes = CONFIG.get("candlestutor_cooldown_minutes", 2)
     if not await check_symbol_cooldown(normalized_symbol, cooldown_minutes):
         logging.debug(f"CandlesTutor cooldown active for {normalized_symbol}")
@@ -212,10 +246,7 @@ async def call_candlestutor(
     )
     
     try:
-        # Обновляем cooldown
-        async with _cooldown_lock:
-            _candlestutor_cooldown[normalized_symbol] = datetime.now()
-        
+        # Обновляем глобальный счетчик попыток (для rate limiting)
         async with _calls_lock:
             _candlestutor_call_times.append(datetime.now())
         
@@ -228,12 +259,6 @@ async def call_candlestutor(
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ]
-        
-        logging.info(
-            f"CandlesTutor call: symbol={normalized_symbol}, "
-            f"candidate={candidate_signal}, ta_score={ta_score:.1f}, "
-            f"ta_conf={ta_confidence:.1f}"
-        )
         
         resp = await asyncio.wait_for(
             client.chat.completions.create(
@@ -250,6 +275,10 @@ async def call_candlestutor(
             raise ValueError("Empty response from GPT")
         
         response_text = resp.choices[0].message.content.strip()
+        
+        # Обновляем cooldown только после успешного получения ответа от API
+        async with _cooldown_lock:
+            _candlestutor_cooldown[normalized_symbol] = datetime.now()
         
         # Парсим JSON ответ
         try:
@@ -286,7 +315,13 @@ async def call_candlestutor(
             decision = "NO_TRADE"
         
         result["decision"] = decision
-        result["confidence"] = max(0, min(100, int(result.get("confidence", 0))))
+        
+        # Нормализация confidence с защитой от невалидных значений
+        try:
+            result["confidence"] = max(0, min(100, int(result.get("confidence", 0))))
+        except (ValueError, TypeError):
+            logging.warning(f"CandlesTutor: invalid confidence value '{result.get('confidence')}', using 0")
+            result["confidence"] = 0
         
         # Нормализация pattern (если пусто/None -> "нет")
         pattern = result.get("pattern", "")

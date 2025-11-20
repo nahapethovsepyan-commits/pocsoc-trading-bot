@@ -158,6 +158,7 @@ CONFIG: Dict[str, Any] = {
     # CandlesTutor configuration
     "candlestutor_enabled": True,  # Включить интеграцию CandlesTutor
     "candlestutor_min_score_gap": 3,  # Минимальный отступ ta_score от порога для вызова GPT
+    "candlestutor_min_ta_confidence": 55,  # Минимальный TA confidence для вызова CandlesTutor (ниже чем min_confidence)
     "candlestutor_min_confidence": 60,  # Минимальный confidence от CandlesTutor для подтверждения
     "candlestutor_cooldown_minutes": 2,  # Cooldown между запросами для одного символа
     "candlestutor_system_prompt": DEFAULT_CANDLESTUTOR_SYSTEM_PROMPT,
