@@ -144,11 +144,15 @@ CONFIG: Dict[str, Any] = {
             "min_signal_score": 60,
             "min_confidence": 65,
             "atr_multiplier": 1.5,
+            "expiration_button_seconds": [60, 120, 180],  # Только минуты для EUR/USD (PocketOption минимум 1 мин)
+            "expiration_button_layout": [[60, 120, 180]],  # Одна строка с минутами
         },
         "XAUUSD": {
             "min_signal_score": 65,  # Higher threshold for volatile gold
             "min_confidence": 70,
             "atr_multiplier": 2.0,  # Larger ATR multiplier for gold
+            "expiration_button_seconds": [5, 10, 30, 60, 120, 180],  # Все опции для золота
+            "expiration_button_layout": [[5, 10, 30], [60, 120, 180]],  # Две строки
         },
     },
     # CandlesTutor configuration

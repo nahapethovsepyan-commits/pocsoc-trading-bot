@@ -437,7 +437,10 @@ async def _run_manual_signal(chat_id: int, lang: str, t: dict) -> None:
 async def manual_signal_handler(message):
     """Manual signal request that now requires choosing expiration."""
     lang, t = get_user_locale(message)
-    keyboard = get_expiration_keyboard(lang)
+    chat_id = message.chat.id
+    # Получаем символ пользователя
+    user_symbol = CONFIG["user_symbols"].get(chat_id, "EURUSD")
+    keyboard = get_expiration_keyboard(lang, symbol=user_symbol)
     await message.answer(t['select_expiration'], reply_markup=keyboard)
 
 
@@ -455,9 +458,17 @@ async def expiration_select_handler(callback):
         await callback.answer(t['expiration_not_supported'], show_alert=True)
         return
 
-    allowed_options = {
-        max(1, int(value)) for value in CONFIG.get("expiration_button_seconds", [5, 10, 30, 60, 120, 180])
-    }
+    # Получаем разрешенные опции для символа пользователя
+    user_symbol = CONFIG["user_symbols"].get(chat_id, "EURUSD")
+    from src.utils.symbols import normalize_symbol
+    try:
+        normalized_symbol = normalize_symbol(user_symbol)
+        symbol_config = CONFIG.get("symbol_configs", {}).get(normalized_symbol, {})
+        allowed_seconds = symbol_config.get("expiration_button_seconds", CONFIG.get("expiration_button_seconds", [5, 10, 30, 60, 120, 180]))
+    except ValueError:
+        allowed_seconds = CONFIG.get("expiration_button_seconds", [5, 10, 30, 60, 120, 180])
+    
+    allowed_options = {max(1, int(value)) for value in allowed_seconds}
     if selected_seconds not in allowed_options:
         await callback.answer(t['expiration_not_supported'], show_alert=True)
         return
@@ -559,7 +570,7 @@ async def symbol_select_handler(callback):
         pass
     
     # Automatically show expiration menu after symbol selection
-    keyboard = get_expiration_keyboard(lang)
+    keyboard = get_expiration_keyboard(lang, symbol=symbol)  # Передаем выбранный символ
     pair = symbol_to_pair(symbol)
     await callback.message.answer(
         f"{t['current_symbol'].format(symbol=pair)}\n\n{t['select_expiration']}", 

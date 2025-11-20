@@ -74,8 +74,18 @@ async def send_signal_to_user(
         confidence = signal_data.get("confidence", 60)
             
         # Expiration based on ATR with configurable thresholds + user overrides
+        # Получаем разрешенные опции для символа
+        signal_symbol = signal_data.get('symbol', 'EURUSD')
+        from ..utils.symbols import normalize_symbol
+        try:
+            normalized_symbol = normalize_symbol(signal_symbol)
+            symbol_config = CONFIG.get("symbol_configs", {}).get(normalized_symbol, {})
+            allowed_seconds_list = symbol_config.get("expiration_button_seconds", CONFIG.get("expiration_button_seconds", [5, 10, 30, 60, 120, 180]))
+        except (ValueError, KeyError):
+            allowed_seconds_list = CONFIG.get("expiration_button_seconds", [5, 10, 30, 60, 120, 180])
+        
         allowed_seconds = sorted(
-            {max(1, int(value)) for value in CONFIG.get("expiration_button_seconds", [5, 10, 30, 60, 120, 180])}
+            {max(1, int(value)) for value in allowed_seconds_list}
         )
 
         def select_allowed(candidate: Optional[float]) -> Optional[int]:
@@ -130,6 +140,8 @@ async def send_signal_to_user(
                     candidate_seconds = 10
                 else:
                     candidate_seconds = 5
+            # Для EURUSD минимальное значение - 60 секунд (1 минута)
+            # select_allowed автоматически выберет ближайшее разрешенное значение
             expiration_seconds = select_allowed(candidate_seconds)
 
         if expiration_seconds is None:
