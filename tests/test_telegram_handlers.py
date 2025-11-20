@@ -9,6 +9,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import PocSocSig_Enhanced
+from src.models.state import SUBSCRIBED_USERS as STATE_SUBSCRIBERS, user_languages as STATE_LANGUAGES
 
 
 class TestTelegramHandlers:
@@ -66,8 +67,11 @@ class TestTelegramHandlers:
         mock_message = MagicMock()
         mock_message.chat.id = 12345
         
-        # Add user to subscribed
+        # Add user to subscribed - both locations
         PocSocSig_Enhanced.SUBSCRIBED_USERS.add(12345)
+        STATE_SUBSCRIBERS.add(12345)
+        PocSocSig_Enhanced.user_languages[12345] = 'ru'
+        STATE_LANGUAGES[12345] = 'ru'
         
         with patch('PocSocSig_Enhanced.get_expiration_keyboard') as mock_keyboard:
             keyboard = MagicMock()
@@ -89,8 +93,11 @@ class TestTelegramHandlers:
         mock_message = MagicMock()
         mock_message.chat.id = 12345
         
-        # Add user to subscribed
+        # Add user to subscribed - both locations
         PocSocSig_Enhanced.SUBSCRIBED_USERS.add(12345)
+        STATE_SUBSCRIBERS.add(12345)
+        PocSocSig_Enhanced.user_languages[12345] = 'ru'
+        STATE_LANGUAGES[12345] = 'ru'
         
         # Set rate limit exceeded
         PocSocSig_Enhanced.STATS["signals_per_hour"] = 15

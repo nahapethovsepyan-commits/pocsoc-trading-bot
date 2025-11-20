@@ -129,6 +129,9 @@ def reset_globals():
     signal_utils_module.STATS = PocSocSig_Enhanced.STATS
     PocSocSig_Enhanced.SIGNAL_HISTORY = []
     PocSocSig_Enhanced.SUBSCRIBED_USERS.clear()
+    state_module.SUBSCRIBED_USERS.clear()
+    PocSocSig_Enhanced.user_languages.clear()
+    state_module.user_languages.clear()
     PocSocSig_Enhanced.API_CACHE.clear()
     yield
     # Cleanup after test
@@ -148,6 +151,9 @@ def reset_globals():
     signal_utils_module.STATS = PocSocSig_Enhanced.STATS
     PocSocSig_Enhanced.SIGNAL_HISTORY = []
     PocSocSig_Enhanced.SUBSCRIBED_USERS.clear()
+    state_module.SUBSCRIBED_USERS.clear()
+    PocSocSig_Enhanced.user_languages.clear()
+    state_module.user_languages.clear()
     PocSocSig_Enhanced.API_CACHE.clear()
 
 

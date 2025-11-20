@@ -9,6 +9,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import PocSocSig_Enhanced
+from src.models.state import SUBSCRIBED_USERS as STATE_SUBSCRIBERS, user_languages as STATE_LANGUAGES
 
 
 class TestMoreHandlers:
@@ -21,9 +22,11 @@ class TestMoreHandlers:
         mock_message = MagicMock()
         mock_message.chat.id = 12345
         PocSocSig_Enhanced.user_languages[12345] = 'ru'
+        STATE_LANGUAGES[12345] = 'ru'
         
-        # Add user to subscribers (required by @require_subscription decorator)
+        # Add user to subscribers (required by @require_subscription decorator) - both locations
         PocSocSig_Enhanced.SUBSCRIBED_USERS.add(12345)
+        STATE_SUBSCRIBERS.add(12345)
         
         # Set up stats
         PocSocSig_Enhanced.STATS["total_signals"] = 10
@@ -56,9 +59,11 @@ class TestMoreHandlers:
         mock_message = MagicMock()
         mock_message.chat.id = 12345
         
-        # Add user to subscribed
+        # Add user to subscribed (both locations)
         PocSocSig_Enhanced.SUBSCRIBED_USERS.add(12345)
+        STATE_SUBSCRIBERS.add(12345)
         PocSocSig_Enhanced.user_languages[12345] = 'ru'
+        STATE_LANGUAGES[12345] = 'ru'
         
         with patch('PocSocSig_Enhanced.bot'):
             mock_message.answer = AsyncMock()
@@ -81,9 +86,11 @@ class TestMoreHandlers:
         mock_message = MagicMock()
         mock_message.chat.id = 12345
         PocSocSig_Enhanced.user_languages[12345] = 'ru'
+        STATE_LANGUAGES[12345] = 'ru'
         
-        # Add user to subscribers (required by @require_subscription decorator)
+        # Add user to subscribers (required by @require_subscription decorator) - both locations
         PocSocSig_Enhanced.SUBSCRIBED_USERS.add(12345)
+        STATE_SUBSCRIBERS.add(12345)
         
         with patch('PocSocSig_Enhanced.bot'):
             mock_message.answer = AsyncMock()
@@ -100,9 +107,11 @@ class TestMoreHandlers:
         mock_message = MagicMock()
         mock_message.chat.id = 12345
         PocSocSig_Enhanced.user_languages[12345] = 'ru'
+        STATE_LANGUAGES[12345] = 'ru'
         
-        # Add user to subscribers (required by @require_subscription decorator)
+        # Add user to subscribers (required by @require_subscription decorator) - both locations
         PocSocSig_Enhanced.SUBSCRIBED_USERS.add(12345)
+        STATE_SUBSCRIBERS.add(12345)
         
         # Add some signals to history
         PocSocSig_Enhanced.SIGNAL_HISTORY = [
@@ -137,6 +146,11 @@ class TestMoreHandlers:
         mock_message = MagicMock()
         mock_message.chat.id = 12345
         PocSocSig_Enhanced.user_languages[12345] = 'ru'
+        STATE_LANGUAGES[12345] = 'ru'
+        
+        # Add user to subscribers - both locations
+        PocSocSig_Enhanced.SUBSCRIBED_USERS.add(12345)
+        STATE_SUBSCRIBERS.add(12345)
         
         # Clear history
         PocSocSig_Enhanced.SIGNAL_HISTORY = []
@@ -156,9 +170,11 @@ class TestMoreHandlers:
         mock_message = MagicMock()
         mock_message.chat.id = 12345
         PocSocSig_Enhanced.user_languages[12345] = 'ru'
+        STATE_LANGUAGES[12345] = 'ru'
         
-        # Add user to subscribers (required by @require_subscription decorator)
+        # Add user to subscribers (required by @require_subscription decorator) - both locations
         PocSocSig_Enhanced.SUBSCRIBED_USERS.add(12345)
+        STATE_SUBSCRIBERS.add(12345)
         
         # Set up metrics
         PocSocSig_Enhanced.METRICS["api_calls"] = 100
@@ -182,9 +198,11 @@ class TestMoreHandlers:
         mock_message = MagicMock()
         mock_message.chat.id = 12345
         PocSocSig_Enhanced.user_languages[12345] = 'ru'
+        STATE_LANGUAGES[12345] = 'ru'
         
-        # Add user to subscribed
+        # Add user to subscribed - both locations
         PocSocSig_Enhanced.SUBSCRIBED_USERS.add(12345)
+        STATE_SUBSCRIBERS.add(12345)
         
         # Set up stats
         PocSocSig_Enhanced.STATS["total_signals"] = 10
@@ -207,9 +225,11 @@ class TestMoreHandlers:
         mock_message = MagicMock()
         mock_message.chat.id = 12345
         PocSocSig_Enhanced.user_languages[12345] = 'ru'
+        STATE_LANGUAGES[12345] = 'ru'
         
-        # Add user to subscribers (required by @require_subscription decorator)
+        # Add user to subscribers (required by @require_subscription decorator) - both locations
         PocSocSig_Enhanced.SUBSCRIBED_USERS.add(12345)
+        STATE_SUBSCRIBERS.add(12345)
         
         # Set up metrics
         PocSocSig_Enhanced.METRICS["start_time"] = datetime.now() - timedelta(hours=1)

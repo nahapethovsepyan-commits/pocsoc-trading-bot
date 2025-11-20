@@ -9,6 +9,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import PocSocSig_Enhanced
+from src.models.state import SUBSCRIBED_USERS as STATE_SUBSCRIBERS, user_languages as STATE_LANGUAGES
 
 
 class TestBacktestHandler:
@@ -22,9 +23,11 @@ class TestBacktestHandler:
         mock_message.chat.id = 12345
         mock_message.answer = AsyncMock()
         PocSocSig_Enhanced.user_languages[12345] = 'ru'
+        STATE_LANGUAGES[12345] = 'ru'
         
-        # Add user to subscribed
+        # Add user to subscribed (both locations)
         PocSocSig_Enhanced.SUBSCRIBED_USERS.add(12345)
+        STATE_SUBSCRIBERS.add(12345)
         
         # Add some signals to database
         with patch('PocSocSig_Enhanced.load_recent_signals_from_db', new_callable=AsyncMock) as mock_load:
@@ -61,9 +64,11 @@ class TestBacktestHandler:
         mock_message.chat.id = 12345
         mock_message.answer = AsyncMock()
         PocSocSig_Enhanced.user_languages[12345] = 'ru'
+        STATE_LANGUAGES[12345] = 'ru'
         
-        # Add user to subscribed
+        # Add user to subscribed (both locations)
         PocSocSig_Enhanced.SUBSCRIBED_USERS.add(12345)
+        STATE_SUBSCRIBERS.add(12345)
         
         # Mock empty database
         with patch('PocSocSig_Enhanced.load_recent_signals_from_db', new_callable=AsyncMock) as mock_load:

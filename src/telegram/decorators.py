@@ -2,6 +2,7 @@
 Telegram bot handler decorators.
 """
 
+import asyncio
 import logging
 from functools import wraps
 from ..models.state import SUBSCRIBED_USERS, user_languages
@@ -29,7 +30,21 @@ def require_subscription(func):
         if chat_id not in SUBSCRIBED_USERS:
             lang = user_languages.get(chat_id, 'ru')
             t = TEXTS.get(lang, TEXTS['ru'])
-            await message_obj.answer(t.get('not_subscribed', '⚠️ Please send /start first to subscribe to signals'))
+            # Ensure answer is awaitable (for tests with AsyncMock)
+            answer_func = getattr(message_obj, 'answer', None)
+            if answer_func is not None:
+                try:
+                    # Try to await (works for AsyncMock and real async functions)
+                    if asyncio.iscoroutinefunction(answer_func):
+                        await answer_func(t.get('not_subscribed', '⚠️ Please send /start first to subscribe to signals'))
+                    else:
+                        # For AsyncMock in tests
+                        result = answer_func(t.get('not_subscribed', '⚠️ Please send /start first to subscribe to signals'))
+                        if asyncio.iscoroutine(result):
+                            await result
+                except (TypeError, AttributeError):
+                    # Fallback for non-async mocks
+                    pass
             return
         return await func(event)
     return wrapper

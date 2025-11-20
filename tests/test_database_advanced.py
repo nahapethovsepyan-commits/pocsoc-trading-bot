@@ -40,6 +40,7 @@ class TestDatabaseAdvanced:
         mock_db = AsyncMock()
         mock_db.execute = AsyncMock()
         mock_db.commit = AsyncMock()
+        mock_db.close = AsyncMock()
         mock_context = AsyncMock()
         mock_context.__aenter__ = AsyncMock(return_value=mock_db)
         mock_context.__aexit__ = AsyncMock(return_value=None)
@@ -81,8 +82,9 @@ class TestDatabaseAdvanced:
         
         mock_cursor.fetchall = AsyncMock(return_value=[mock_row])
         mock_cursor.close = AsyncMock(return_value=None)
-        mock_db.execute.return_value = mock_cursor
+        mock_db.execute = AsyncMock(return_value=mock_cursor)
         mock_db.row_factory = None
+        mock_db.close = AsyncMock()
         mock_context = AsyncMock()
         mock_context.__aenter__ = AsyncMock(return_value=mock_db)
         mock_context.__aexit__ = AsyncMock(return_value=None)
@@ -105,6 +107,7 @@ class TestDatabaseAdvanced:
         mock_db = AsyncMock()
         mock_db.execute = AsyncMock()
         mock_db.commit = AsyncMock()
+        mock_db.close = AsyncMock()
         mock_context = AsyncMock()
         mock_context.__aenter__ = AsyncMock(return_value=mock_db)
         mock_context.__aexit__ = AsyncMock(return_value=None)
@@ -121,14 +124,16 @@ class TestDatabaseAdvanced:
         mock_db = AsyncMock()
         mock_db.execute = AsyncMock()
         mock_db.commit = AsyncMock()
+        mock_db.close = AsyncMock()
         mock_context = AsyncMock()
         mock_context.__aenter__ = AsyncMock(return_value=mock_db)
         mock_context.__aexit__ = AsyncMock(return_value=None)
         
         with patch('src.database.repository.aiosqlite.connect', return_value=mock_context):
-            await PocSocSig_Enhanced.init_database()
-            
-            # Should create signals and stats tables
-            assert mock_db.execute.call_count >= 2
-            assert mock_db.commit.called
+            with patch('src.database.repository.load_subscribers_into_state', new_callable=AsyncMock):
+                await PocSocSig_Enhanced.init_database()
+                
+                # Should create signals and stats tables
+                assert mock_db.execute.call_count >= 2
+                assert mock_db.commit.called
 

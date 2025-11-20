@@ -385,7 +385,13 @@ async def _run_manual_signal(chat_id: int, lang: str, t: dict) -> None:
             await bot.send_message(chat_id, t['rate_limit'])
             return
         
-        analyzing_msg = await bot.send_message(chat_id, t['analyzing'])
+        # Формируем сообщение с правильным символом
+        from src.utils.symbols import symbol_to_pair
+        try:
+            pair = symbol_to_pair(symbol)
+        except ValueError:
+            pair = symbol
+        analyzing_msg = await bot.send_message(chat_id, t['analyzing'].format(symbol=pair))
         
         signal_data = await asyncio.wait_for(generate_signal(symbol), timeout=30.0)
         if "symbol" not in signal_data:

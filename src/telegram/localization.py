@@ -15,7 +15,7 @@ TEXTS = {
             "📈 Нажмите 'СТАТИСТИКА' для статистики\n\n"
             "Запуск автоматического анализа..."
         ),
-        'analyzing': "🤖 Анализ EUR/USD... (макс 10 сек)",
+        'analyzing': "🤖 Анализ {symbol}... (макс 10 сек)",
         'rate_limit': "⏱️ Достигнут лимит. Попробуйте позже.",
         'timeout': "⏱️ Таймаут анализа. Попробуйте снова.",
         'error': "❌ Ошибка: {error}",
@@ -91,7 +91,7 @@ TEXTS = {
             "📈 Press 'STATISTICS' for stats\n\n"
             "Starting automated analysis..."
         ),
-        'analyzing': "🤖 Analyzing EUR/USD... (max 10 sec)",
+        'analyzing': "🤖 Analyzing {symbol}... (max 10 sec)",
         'rate_limit': "⏱️ Rate limit reached. Try later.",
         'timeout': "⏱️ Analysis timeout. Try again.",
         'error': "❌ Error: {error}",
